@@ -1,0 +1,13 @@
+version: '3'
+services:
+  webhook-receiver:
+    image: webhook-receiver
+    ports:
+      - "8080:8080"
+    environment:
+      # - AUTH_TOKEN=${AUTH_TOKEN}
+      - PORT=8080
+      - GIN_MODE=release
+    # Alternatively, use env_file:
+    env_file:
+      - .env
