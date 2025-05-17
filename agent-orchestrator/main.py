@@ -1,6 +1,6 @@
-from agent_manager import AgentManager
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from src.agent_manager import AgentManager
 
 app = FastAPI(title="Agent Orchestrator")
 agent_manager = AgentManager()

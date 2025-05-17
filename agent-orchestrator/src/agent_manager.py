@@ -1,8 +1,8 @@
 import os
 from typing import Any, Dict
 
-from config import settings  # Assuming config.py exists with appropriate settings
 from langchain_mvc_agent import create_mvc_langchain_agent
+from src.config import settings
 
 
 class AgentManager:
