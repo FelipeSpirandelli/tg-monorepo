@@ -1,45 +1,58 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from src.agent_manager import AgentManager
+from contextlib import asynccontextmanager
 
-app = FastAPI(title="Agent Orchestrator")
+from fastapi import FastAPI, HTTPException
+from src.agent_manager import AgentManager
+from src.logger import logger
+from src.models import AgentResponse, AlertRequest
+
+
+# Define lifespan context manager
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("Initializing MVC agent...")
+    try:
+        await agent_manager.initialize_mvc_agent()
+        logger.info("MVC agent initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize MVC agent: {str(e)}")
+    yield
+    agent_manager.mcp_client.cleanup()
+    logger.info("MVC agent cleanup completed")
+
+
+# Initialize the agent manager
 agent_manager = AgentManager()
 
+# Pass the lifespan to the FastAPI app
+app = FastAPI(title="Agent Orchestrator", lifespan=lifespan)
 
-# Initialize the MVC agent on startup
-@app.on_event("startup")
-async def startup_event():
+
+@app.post("/alert", response_model=AgentResponse)
+async def process_alert(request: AlertRequest):
+    """
+    Process an incoming alert through a configurable pipeline
+
+    The pipeline can be customized by providing the pipeline_config field.
+    If no pipeline is specified, the default pipeline will be used.
+    """
     try:
-        agent_manager.initialize_mvc_agent()
-    except Exception as e:
-        print(f"Failed to initialize MVC agent: {str(e)}")
+        # Prepare the initial data with the alert
+        initial_data = {"alert_data": request.alert_data.model_dump()}
 
+        # Use custom pipeline if provided, otherwise use default
+        if request.pipeline_config:
+            pipeline_steps = request.pipeline_config.steps
+            step_config = request.pipeline_config.step_config
+            result = await agent_manager.pipeline_processor.process(initial_data, pipeline_steps, step_config)
+        else:
+            # Use default pipeline
+            result = await agent_manager.process_alert(initial_data)
 
-class AgentQuery(BaseModel):
-    query: str
-    agent_name: str = "mvc_agent"  # Default to MVC agent
-
-
-class AgentResponse(BaseModel):
-    response: str
-
-
-@app.post("/query", response_model=AgentResponse)
-async def query_agent(request: AgentQuery):
-    """Run a query through the specified agent"""
-    try:
-        response = agent_manager.run_agent(request.agent_name, request.query)
-        return AgentResponse(response=response)
+        return AgentResponse(response=result)
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error processing query: {str(e)}")
-
-
-@app.get("/agents")
-async def list_agents():
-    """List all available agents"""
-    return {"agents": list(agent_manager.agents.keys())}
+        raise HTTPException(status_code=500, detail=f"Error processing alert: {str(e)}")
 
 
 if __name__ == "__main__":

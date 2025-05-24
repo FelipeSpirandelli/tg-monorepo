@@ -1,47 +1,135 @@
-# MVC API LangChain Agent
+# Agent Orchestrator
 
-This service provides a LangChain-powered agent that can communicate with and perform operations on the MVC API service.
+A flexible pipeline-based system for processing alerts with AI agents and Model Context Protocol (MCP) integration.
 
-## Setup
+## Features
 
-2. Set up your OpenAI API key:
+- Extendable pipeline architecture for alert processing
+- Dynamic prompt generation based on alert context
+- Integration with Claude and other models through MCP
+- Custom pipeline steps for specialized processing
+- Tool usage capabilities for enhanced reasoning
+
+## Getting Started
+
+### Prerequisites
+
+- Python 3.11+
+- Required Python packages (listed in pyproject.toml)
+
+### Installation
+
+1. Clone the repository
+2. Install dependencies:
 
 ```bash
-export OPENAI_API_KEY=your_api_key_here
+cd agent-orchestrator
+pip install -e .
 ```
 
-3. Update the configuration in `config.py` to point to your actual MVC API endpoint.
+3. Set up environment variables in a `.env` file:
 
-## Running the Service
+```
+ANTHROPIC_API_KEY=your_api_key_here
+```
 
-Start the agent orchestrator:
+### Running the service
 
 ```bash
 python main.py
 ```
 
-The service will run on http://localhost:8001.
+The service will start on port 8001.
 
-## Using the Agent
+## Usage
 
-Send queries to the agent using the API endpoint:
+### Processing Alerts
 
-```bash
-curl -X POST http://localhost:8001/query \
-  -H "Content-Type: application/json" \
-  -d '{"query": "Get all users from the MVC API"}'
+Send a POST request to `/alert` with alert data:
+
+```python
+import httpx
+
+response = await httpx.post(
+    "http://localhost:8001/alert",
+    json={
+        "alert_data": {
+            "type": "security_alert",
+            "source": "intrusion_detection_system",
+            "severity": "high",
+            "timestamp": "2025-05-24T15:30:45Z",
+            "details": {
+                "ip_address": "192.168.1.100",
+                "event_id": "IDS-1234",
+                "rule_triggered": "Suspicious Login Attempt"
+            }
+        }
+    }
+)
 ```
 
-## Example Queries
+### Customizing the Pipeline
 
-The agent can handle various operations on the MVC API:
+You can customize the pipeline by providing a pipeline configuration:
 
-- "Get a list of all users"
-- "Get user details for user with ID 123"
-- "Create a new user with name 'John Doe' and email 'john@example.com'"
-- "Update user 456 to have a new email address: jane@example.com"
-- "Delete user with ID 789"
+```python
+response = await httpx.post(
+    "http://localhost:8001/alert",
+    json={
+        "alert_data": {...},
+        "pipeline_config": {
+            "steps": [
+                "alert_processing",
+                "custom_step",  # Your custom step
+                "prompt_generation",
+                "mcp_query"
+            ],
+            "step_config": {
+                "prompt_generation": {
+                    "prompt_template": "Your custom prompt template here"
+                },
+                "mcp_query": {
+                    "model": "claude-3-5-sonnet-20241022",
+                    "max_tokens": 1500,
+                    "temperature": 0.2
+                }
+            }
+        }
+    }
+)
+```
 
-## Extending the Agent
+## Extending the Pipeline
 
-To add more capabilities to the agent, modify the `MVCAPITool` class in `langchain_mvc_agent.py`.
+Create custom pipeline steps by inheriting from `PipelineStep`:
+
+```python
+from src.pipeline_processor import PipelineStep
+
+class YourCustomStep(PipelineStep):
+    @property
+    def required_inputs(self):
+        return ["processed_alert"]
+
+    @property
+    def provided_outputs(self):
+        return ["custom_data"]
+
+    async def process(self, data):
+        # Your custom processing logic here
+        return {"custom_data": result}
+```
+
+Register your step in `examples/register_custom_steps.py`.
+
+## Architecture
+
+See [docs/pipeline.md](docs/pipeline.md) for detailed pipeline architecture information.
+
+## Examples
+
+Check the `examples` directory for sample code:
+
+- `send_alert.py` - Basic alert processing example
+- `complex_alert.py` - Advanced pipeline configuration
+- `custom_pipeline_step.py` - Creating custom pipeline steps
