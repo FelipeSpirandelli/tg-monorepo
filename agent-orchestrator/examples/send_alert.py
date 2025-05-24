@@ -3,10 +3,11 @@ import json
 import os
 import sys
 
-# Add parent directory to path to import from src
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import httpx
 from src.logger import logger
+
+# Add parent directory to path to import from src
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 # Example of an alert to send to the agent orchestrator
 alert_data = {
