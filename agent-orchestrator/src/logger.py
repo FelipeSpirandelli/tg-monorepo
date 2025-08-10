@@ -1,12 +1,11 @@
 import logging
 import os
 import sys
-from typing import Optional, Union
 
 
 # Configure the root logger
 def setup_logger(
-    name: str = "agent-orchestrator", level: Union[int, str] = None, log_file: Optional[str] = None
+    name: str = "agent-orchestrator", level: int | str = None, log_file: str | None = None
 ) -> logging.Logger:
     """
     Set up a logger with configurable name, level, and optional file output

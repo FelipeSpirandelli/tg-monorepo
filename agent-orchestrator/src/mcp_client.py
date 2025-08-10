@@ -1,63 +1,103 @@
-import asyncio
-from contextlib import AsyncExitStack
-from typing import Optional
-
 from anthropic import Anthropic
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
+from config import Config
 from src.logger import logger
+from src.mcp_tools import get_mcp_tools_instance
 
 
-class MCPClient:
+class IntegratedMCPClient:
+    """MCP client that uses integrated tools instead of external server"""
+
     def __init__(self):
-        # Initialize session and client objects
-        self.session: Optional[ClientSession] = None
-        self.exit_stack = AsyncExitStack()
-        self.anthropic = Anthropic()
+        self.anthropic = Anthropic(api_key=Config().api_key)
+        self.mcp_tools = get_mcp_tools_instance()
+        self.available_tools = []
+        self._initialize_tools()
 
-    async def connect_to_server(self, server_script_path: str, timeout: int = 10):
-        """Connect to an MCP server
-
-        Args:
-            server_script_path: Path to the server script (.py or .js)
-            timeout: Maximum time in seconds to wait for initialization
-        """
-        is_python = server_script_path.endswith(".py")
-        is_js = server_script_path.endswith(".js")
-        if not (is_python or is_js):
-            raise ValueError("Server script must be a .py or .js file")
-
-        command = "python" if is_python else "node"
-        logger.info(f"Connecting to server using command: {command} {server_script_path}")
-        server_params = StdioServerParameters(command=command, args=[server_script_path], env=None)
-
-        try:
-            stdio_transport = await self.exit_stack.enter_async_context(stdio_client(server_params))
-            self.stdio, self.write = stdio_transport
-            self.session = await self.exit_stack.enter_async_context(ClientSession(self.stdio, self.write))
-
-            logger.info("Session created, initializing...")
-            # Add timeout to the initialization step
-            try:
-                await asyncio.wait_for(self.session.initialize(), timeout=timeout)
-                logger.info("Connected to server successfully")
-
-                # List available tools
-                response = await self.session.list_tools()
-                tools = response.tools
-
-                logger.info(f"Connected to server with tools: {[tool.name for tool in tools]}")
-            except asyncio.TimeoutError:
-                logger.error(f"Server initialization timed out after {timeout} seconds")
-                await self.cleanup()
-                raise ConnectionError(
-                    f"Failed to initialize connection to MCP server: timeout after {timeout} seconds"
-                )
-
-        except Exception as e:
-            logger.error(f"Error connecting to server: {str(e)}")
-            await self.cleanup()
-            raise ConnectionError(f"Failed to connect to MCP server: {str(e)}")
+    def _initialize_tools(self):
+        """Initialize available tools from the integrated MCP instance"""
+        # Get tools from the MCP tools instance
+        # Note: FastMCP doesn't expose tools directly, so we'll manually define them
+        self.available_tools = [
+            {
+                "name": "add",
+                "description": "Add two numbers",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "a": {"type": "integer", "description": "First number"},
+                        "b": {"type": "integer", "description": "Second number"},
+                    },
+                    "required": ["a", "b"],
+                },
+            },
+            {
+                "name": "ip_lookup",
+                "description": "Look up reputation and geolocation data for an IP address",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "ip_address": {"type": "string", "description": "The IP address to look up"}
+                    },
+                    "required": ["ip_address"],
+                },
+            },
+            {
+                "name": "port_analyzer",
+                "description": "Analyze if specific ports are commonly associated with threats",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "ports": {
+                            "type": "array",
+                            "items": {"type": "integer"},
+                            "description": "List of port numbers to analyze",
+                        }
+                    },
+                    "required": ["ports"],
+                },
+            },
+            {
+                "name": "historical_data",
+                "description": "Check if similar patterns have been seen before in historical data",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "signature": {
+                            "type": "string",
+                            "description": "The pattern signature to search for",
+                        },
+                        "timeframe_hours": {
+                            "type": "integer",
+                            "description": "How many hours back to search",
+                            "default": 24,
+                        },
+                    },
+                    "required": ["signature"],
+                },
+            },
+            {
+                "name": "threat_assessment",
+                "description": "Perform a comprehensive threat assessment based on alert data",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "alert_type": {"type": "string", "description": "Type of alert"},
+                        "severity": {"type": "string", "description": "Alert severity level"},
+                        "source_ip": {
+                            "type": "string",
+                            "description": "Source IP address if applicable",
+                        },
+                        "ports": {
+                            "type": "array",
+                            "items": {"type": "integer"},
+                            "description": "List of ports involved if applicable",
+                        },
+                    },
+                    "required": ["alert_type", "severity"],
+                },
+            },
+        ]
+        logger.info(f"Initialized with {len(self.available_tools)} integrated tools")
 
     async def process_query(
         self,
@@ -66,7 +106,8 @@ class MCPClient:
         max_tokens: int = 1000,
         temperature: float = 0.5,
     ) -> str:
-        """Process a query using Claude and available tools
+        """
+        Process a query using Claude and available integrated tools
 
         Args:
             query: The user prompt to send to the model
@@ -79,19 +120,13 @@ class MCPClient:
         """
         messages = [{"role": "user", "content": query}]
 
-        response = await self.session.list_tools()
-        available_tools = [
-            {"name": tool.name, "description": tool.description, "input_schema": tool.inputSchema}
-            for tool in response.tools
-        ]
-
         # Initial Claude API call
         response = self.anthropic.messages.create(
             model=model,
             max_tokens=max_tokens,
             temperature=temperature,
             messages=messages,
-            tools=available_tools,
+            tools=self.available_tools,
         )
 
         # Process response and handle tool calls
@@ -106,8 +141,8 @@ class MCPClient:
                 tool_name = content.name
                 tool_args = content.input
 
-                # Execute tool call
-                result = await self.session.call_tool(tool_name, tool_args)
+                # Execute tool call using integrated tools
+                result = await self._execute_tool(tool_name, tool_args)
                 final_text.append(f"[Calling tool {tool_name} with args {tool_args}]")
 
                 assistant_message_content.append(content)
@@ -116,23 +151,61 @@ class MCPClient:
                     {
                         "role": "user",
                         "content": [
-                            {"type": "tool_result", "tool_use_id": content.id, "content": result.content}
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": content.id,
+                                "content": str(result),
+                            }
                         ],
                     }
                 )
 
                 # Get next response from Claude
                 response = self.anthropic.messages.create(
-                    model="claude-3-5-sonnet-20241022",
-                    max_tokens=1000,
+                    model=model,
+                    max_tokens=max_tokens,
                     messages=messages,
-                    tools=available_tools,
+                    tools=self.available_tools,
                 )
 
                 final_text.append(response.content[0].text)
 
         return "\n".join(final_text)
 
+    async def _execute_tool(self, tool_name: str, tool_args: dict):
+        """Execute a tool call using the integrated MCP tools"""
+        try:
+            # Import the tool functions from mcp_tools
+            from .mcp_tools import (
+                add,
+                historical_data,
+                ip_lookup,
+                port_analyzer,
+                threat_assessment,
+            )
+
+            # Map tool names to functions
+            tool_functions = {
+                "add": add,
+                "ip_lookup": ip_lookup,
+                "port_analyzer": port_analyzer,
+                "historical_data": historical_data,
+                "threat_assessment": threat_assessment,
+            }
+
+            if tool_name not in tool_functions:
+                raise ValueError(f"Unknown tool: {tool_name}")
+
+            # Execute the tool function
+            result = tool_functions[tool_name](**tool_args)
+            logger.debug(f"Tool {tool_name} executed successfully")
+            return result
+
+        except Exception as e:
+            logger.error(f"Error executing tool {tool_name}: {str(e)}")
+            return {"error": f"Tool execution failed: {str(e)}"}
+
     async def cleanup(self):
-        """Clean up resources"""
-        await self.exit_stack.aclose()
+        """Clean up resources (no external connections to close)"""
+        logger.info("Integrated MCP client cleanup completed")
+        pass

@@ -4,6 +4,7 @@ import os
 import sys
 
 import httpx
+
 from src.logger import logger
 
 # Add parent directory to path to import from src

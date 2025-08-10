@@ -1,12 +1,11 @@
 import importlib.util
 import os
 import sys
-from typing import Any, Dict, List
+from typing import Any
 
 from src.logger import logger
-
-from .mcp_client import MCPClient
-from .pipeline_processor import PipelineProcessor
+from src.mcp_client import IntegratedMCPClient
+from src.pipeline_processor import PipelineProcessor
 
 
 class AgentManager:
@@ -16,18 +15,12 @@ class AgentManager:
         self.mcp_client = None
 
     async def initialize_mvc_agent(self):
-        """Initialize the MVC agent with MCP client"""
+        """Initialize the MVC agent with integrated MCP client"""
         try:
-            # Create an MCP client and connect to the server
-            logger.info("Initializing MVC agent class...")
-            self.mcp_client = MCPClient()
-            # Assuming the MCP server is in a specific location relative to this project
-            mcp_server_path = os.path.abspath(
-                os.path.join(os.path.dirname(__file__), "../../mcp-api/server.py")
-            )
-            logger.info(f"Connecting to MCP server at {mcp_server_path}...")
-            await self.mcp_client.connect_to_server(mcp_server_path)
-            logger.info("Connected to MCP server successfully")
+            # Create an integrated MCP client (no external server needed)
+            logger.info("Initializing MVC agent with integrated tools...")
+            self.mcp_client = IntegratedMCPClient()
+            logger.info("Integrated MCP client initialized successfully")
             self.register_pipeline_steps()
             logger.info("MVC agent initialized successfully")
         except Exception as e:
@@ -75,11 +68,11 @@ class AgentManager:
         except Exception as e:
             logger.error(f"Error loading custom pipeline steps: {str(e)}")
 
-    def get_default_pipeline(self) -> List[str]:
+    def get_default_pipeline(self) -> list[str]:
         """Return the default pipeline steps sequence"""
         return ["alert_processing", "prompt_generation", "mcp_query", "response_formatting"]
 
-    async def process_alert(self, alert_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def process_alert(self, alert_data: dict[str, Any]) -> dict[str, Any]:
         """Process an alert through the pipeline"""
         try:
             # Get default pipeline

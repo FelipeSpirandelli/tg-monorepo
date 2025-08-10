@@ -1,21 +1,21 @@
-from typing import Any, Dict, List
+from typing import Any
 
-from .mcp_client import MCPClient
-from .pipeline_processor import PipelineStep
+from src.mcp_client import IntegratedMCPClient
+from src.pipeline_processor import PipelineStep
 
 
 class AlertProcessingStep(PipelineStep):
     """Process incoming alert data"""
 
     @property
-    def required_inputs(self) -> List[str]:
+    def required_inputs(self) -> list[str]:
         return ["alert_data"]
 
     @property
-    def provided_outputs(self) -> List[str]:
+    def provided_outputs(self) -> list[str]:
         return ["processed_alert"]
 
-    async def process(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    async def process(self, data: dict[str, Any]) -> dict[str, Any]:
         """Process the alert data"""
         alert_data = data["alert_data"]
 
@@ -34,14 +34,14 @@ class PromptGenerationStep(PipelineStep):
     """Generate a prompt for the AI based on processed alert data"""
 
     @property
-    def required_inputs(self) -> List[str]:
+    def required_inputs(self) -> list[str]:
         return ["processed_alert"]
 
     @property
-    def provided_outputs(self) -> List[str]:
+    def provided_outputs(self) -> list[str]:
         return ["prompt", "prompt_context"]
 
-    async def process(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    async def process(self, data: dict[str, Any]) -> dict[str, Any]:
         """Generate a prompt for the AI"""
         processed_alert = data["processed_alert"]
         prompt_template = data.get("prompt_template", self._get_default_prompt_template())
@@ -76,23 +76,23 @@ Please analyze this alert and recommend appropriate actions.
 
 
 class MCPQueryStep(PipelineStep):
-    """Execute a query through the MCP client"""
+    """Execute a query through the integrated MCP client"""
 
-    def __init__(self, mcp_client: MCPClient):
+    def __init__(self, mcp_client: IntegratedMCPClient):
         self.mcp_client = mcp_client
 
     @property
-    def required_inputs(self) -> List[str]:
+    def required_inputs(self) -> list[str]:
         return ["prompt"]
 
     @property
-    def provided_outputs(self) -> List[str]:
+    def provided_outputs(self) -> list[str]:
         return ["mcp_response"]
 
-    async def process(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Process a query through the MCP client"""
+    async def process(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Process a query through the integrated MCP client"""
         if not self.mcp_client:
-            raise ValueError("MCP client not initialized")
+            raise ValueError("Integrated MCP client not initialized")
 
         prompt = data["prompt"]
 
@@ -101,7 +101,7 @@ class MCPQueryStep(PipelineStep):
         max_tokens = data.get("max_tokens", 1000)
         temperature = data.get("temperature", 0.5)
 
-        # Process the query using MCP client with custom parameters
+        # Process the query using integrated MCP client with custom parameters
         response = await self.mcp_client.process_query(
             prompt, model=model, max_tokens=max_tokens, temperature=temperature
         )
@@ -113,14 +113,14 @@ class ResponseFormattingStep(PipelineStep):
     """Format the response for the user"""
 
     @property
-    def required_inputs(self) -> List[str]:
+    def required_inputs(self) -> list[str]:
         return ["mcp_response", "processed_alert"]
 
     @property
-    def provided_outputs(self) -> List[str]:
+    def provided_outputs(self) -> list[str]:
         return ["formatted_response"]
 
-    async def process(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    async def process(self, data: dict[str, Any]) -> dict[str, Any]:
         """Format the response"""
         mcp_response = data["mcp_response"]
         processed_alert = data["processed_alert"]

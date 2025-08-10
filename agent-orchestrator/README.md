@@ -1,14 +1,24 @@
 # Agent Orchestrator
 
-A flexible pipeline-based system for processing alerts with AI agents and Model Context Protocol (MCP) integration.
+A unified AI-powered system for processing alerts with integrated tools and pipeline-based architecture. This service combines webhook reception, AI agent coordination, and cybersecurity analysis tools in a single, consolidated application.
 
 ## Features
 
-- Extendable pipeline architecture for alert processing
-- Dynamic prompt generation based on alert context
-- Integration with Claude and other models through MCP
-- Custom pipeline steps for specialized processing
-- Tool usage capabilities for enhanced reasoning
+- **Unified Architecture**: Single service handles API requests, AI processing, and tool integration
+- **Integrated MCP Tools**: Built-in cybersecurity analysis tools (no external MCP server needed)
+- **Flexible Pipeline**: Extendable pipeline architecture for alert processing
+- **Dynamic Prompting**: Context-aware prompt generation based on alert data
+- **AI Agent Integration**: Claude integration with tool-calling capabilities
+- **FastAPI Server**: RESTful API for receiving webhooks and processing requests
+
+## Built-in Tools
+
+The system includes several integrated analysis tools:
+
+- **IP Lookup**: Reputation and geolocation analysis for IP addresses
+- **Port Analyzer**: Threat assessment for network ports
+- **Historical Data**: Pattern matching against historical incidents
+- **Threat Assessment**: Comprehensive threat scoring and recommendations
 
 ## Getting Started
 
@@ -19,11 +29,13 @@ A flexible pipeline-based system for processing alerts with AI agents and Model 
 
 ### Installation
 
-1. Clone the repository
+1. Navigate to the agent-orchestrator directory
 2. Install dependencies:
 
 ```bash
 cd agent-orchestrator
+uv sync
+# or
 pip install -e .
 ```
 
@@ -39,7 +51,9 @@ ANTHROPIC_API_KEY=your_api_key_here
 python main.py
 ```
 
-The service will start on port 8001.
+The service will start on port 8001 and provides the following endpoints:
+
+- `POST /alert` - Process alert data through the AI pipeline
 
 ## Usage
 

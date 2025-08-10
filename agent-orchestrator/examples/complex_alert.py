@@ -2,9 +2,10 @@ import asyncio
 import json
 import os
 import sys
-from typing import Any, Dict
+from typing import Any
 
 import httpx
+
 from src.logger import logger
 
 # Add parent directory to path to import from src
@@ -12,7 +13,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 
 # Example request with custom pipeline configuration
-def create_complex_alert_request() -> Dict[str, Any]:
+def create_complex_alert_request() -> dict[str, Any]:
     """
     Create a complex alert request with custom pipeline configuration
     that specifies tool access instructions explicitly
@@ -81,7 +82,11 @@ After using the tools, provide:
 """
                 },
                 # Configuration specific to the MCP query step
-                "mcp_query": {"model": "claude-3-5-sonnet-20241022", "max_tokens": 1500, "temperature": 0.2},
+                "mcp_query": {
+                    "model": "claude-3-5-sonnet-20241022",
+                    "max_tokens": 1500,
+                    "temperature": 0.2,
+                },
             },
         },
     }

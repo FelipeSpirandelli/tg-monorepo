@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any
 
 from src.pipeline_processor import PipelineStep
 
@@ -7,14 +7,14 @@ class CustomAlertEnrichmentStep(PipelineStep):
     """Example of a custom pipeline step to enrich alert data"""
 
     @property
-    def required_inputs(self) -> List[str]:
+    def required_inputs(self) -> list[str]:
         return ["processed_alert"]
 
     @property
-    def provided_outputs(self) -> List[str]:
+    def provided_outputs(self) -> list[str]:
         return ["enriched_alert"]
 
-    async def process(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    async def process(self, data: dict[str, Any]) -> dict[str, Any]:
         """Enrich the alert data with additional information"""
         processed_alert = data["processed_alert"]
 
@@ -27,7 +27,10 @@ class CustomAlertEnrichmentStep(PipelineStep):
         enriched_alert = processed_alert.copy()
 
         # Example enrichment: classify the alert based on type and severity
-        if processed_alert["alert_type"] == "security_alert" and processed_alert["severity"] == "high":
+        if (
+            processed_alert["alert_type"] == "security_alert"
+            and processed_alert["severity"] == "high"
+        ):
             enriched_alert["risk_score"] = 90
             enriched_alert["recommended_action"] = "immediate_investigation"
         elif processed_alert["severity"] == "medium":

@@ -1,62 +1,64 @@
 # TG
 
-This monorepo contains a set of interconnected services that work together to provide an AI-powered application system.
+This monorepo contains an AI-powered application system with integrated tools and pipeline-based processing.
 
 ## Architecture Overview
 
-The system is composed of the following components:
+The system is composed of a single, consolidated component:
 
 ```
-┌─────────────────┐      ┌────────────────────┐      ┌────────────┐
-│ Webhook Receiver│ ───> │ Agent Orchestrator │ ───> │ Server API │
-└─────────────────┘      └────────────────────┘      └────────────┘
+┌──────────────────────────────────────────────┐
+│               Agent Orchestrator             │
+│  ┌─────────────────┐  ┌─────────────────────┐ │
+│  │ FastAPI Server  │  │   Integrated MCP    │ │
+│  │ (Webhook/API)   │  │      Tools          │ │
+│  └─────────────────┘  └─────────────────────┘ │
+│  ┌─────────────────┐  ┌─────────────────────┐ │
+│  │ Pipeline        │  │   AI Agent          │ │
+│  │ Processor       │  │  (Claude + Tools)   │ │
+│  └─────────────────┘  └─────────────────────┘ │
+└──────────────────────────────────────────────┘
 ```
 
-### Components
+### Component
 
-1. **Webhook Receiver**  
-   Serves as the entry point for external events. It receives webhooks from various sources and forwards the appropriate data to the Agent Orchestrator.
+**Agent Orchestrator**  
+A unified service that handles:
 
-2. **Agent Orchestrator**  
-   The core component responsible for:
-
-   - Processing incoming webhook data
-   - Coordinating AI agent activities using LangChain
-   - Executing necessary business logic
-   - Communicating with the Server API to persist or retrieve data
-
-3. **Server API (MVC)**  
-   A model-view-controller backend that:
-   - Provides data persistence
-   - Handles business logic
-   - Exposes RESTful endpoints for the Agent Orchestrator to consume
+- **Webhook/API Reception**: Receives external requests via FastAPI
+- **Pipeline Processing**: Processes alerts through configurable pipeline steps
+- **AI Agent Coordination**: Uses Claude with integrated MCP tools
+- **Tool Integration**: Built-in cybersecurity analysis tools (IP lookup, port analysis, threat assessment, etc.)
 
 ## Data Flow
 
-1. External systems trigger webhooks to the Webhook Receiver
-2. The Webhook Receiver processes and forwards relevant data to the Agent Orchestrator
-3. The Agent Orchestrator:
-   - Analyzes the incoming data
-   - Makes decisions using AI capabilities
-   - Calls appropriate endpoints on the Server API
-4. The Server API processes requests, performs database operations, and returns necessary data
+1. External systems send requests to the Agent Orchestrator API endpoints
+2. The Agent Orchestrator processes requests through a configurable pipeline:
+   - Alert processing and normalization
+   - Prompt generation with context
+   - AI agent query with integrated tools
+   - Response formatting
+3. The AI agent can use built-in tools for enhanced analysis:
+   - IP reputation lookup
+   - Port threat analysis
+   - Historical pattern matching
+   - Comprehensive threat assessment
 
 ## Development
 
-Each component is located in its own directory within this monorepo:
+The system is now contained in a single directory:
 
-- `/webhook-receiver` - The webhook handling service
-- `/agent-orchestrator` - The LangChain-based AI orchestration service
-- `/server-api` - The MVC backend
+- `/agent-orchestrator` - The unified AI orchestration service with integrated tools
 
 ## Getting Started
 
-To run the entire system:
+To run the system:
 
-1. Install dependencies for each component
-2. Start each service in the recommended order:
-   - Server API
-   - Agent Orchestrator
-   - Webhook Receiver
+1. Navigate to the agent-orchestrator directory
+2. Install dependencies: `uv sync` or `pip install -e .`
+3. Set up environment variables (ANTHROPIC_API_KEY)
+4. Start the service: `python main.py`
 
-Refer to the README in each component directory for specific setup instructions.
+The service will start on port 8001 and be ready to receive webhook requests and process alerts.
+
+Refer to the README in the agent-orchestrator directory for detailed usage instructions.

@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
+
 from src.agent_manager import AgentManager
 from src.logger import logger
 from src.models import AgentResponse, AlertRequest
@@ -16,8 +17,8 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Failed to initialize MVC agent: {str(e)}")
     yield
-    agent_manager.mcp_client.cleanup()
-    logger.info("MVC agent cleanup completed")
+    await agent_manager.mcp_client.cleanup()
+    logger.info("Integrated MCP client cleanup completed")
 
 
 # Initialize the agent manager
@@ -43,7 +44,9 @@ async def process_alert(request: AlertRequest):
         if request.pipeline_config:
             pipeline_steps = request.pipeline_config.steps
             step_config = request.pipeline_config.step_config
-            result = await agent_manager.pipeline_processor.process(initial_data, pipeline_steps, step_config)
+            result = await agent_manager.pipeline_processor.process(
+                initial_data, pipeline_steps, step_config
+            )
         else:
             # Use default pipeline
             result = await agent_manager.process_alert(initial_data)
