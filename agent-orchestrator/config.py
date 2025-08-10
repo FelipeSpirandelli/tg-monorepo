@@ -14,13 +14,14 @@ class Config:
 
     def __new__(cls):
         if cls._instance is None:
-            cls._instance = super(Config, cls).__new__(cls)
+            cls._instance = super().__new__(cls)
         return cls._instance
 
     def get_env(self, key: str) -> str:
-        if key not in os.environ:
+        value = os.getenv(key, None)
+        if value is None:
             raise ValueError(f"Environment variable {key} is not set")
-        return os.getenv(key)
+        return value
 
     def __init__(self):
         if not Config._initialized:

@@ -71,7 +71,11 @@ def port_analyzer(ports: list[int]) -> dict[str, Any]:
         8080: {"service": "HTTP-Alt", "threat_level": "low", "notes": "Alternative HTTP port"},
     }
 
-    analysis = {"total_ports": len(ports), "suspicious_ports": 0, "port_details": []}
+    analysis: dict[str, Any] = {
+        "total_ports": len(ports),
+        "suspicious_ports": 0,
+        "port_details": [],
+    }
 
     for port in ports:
         port_info = threat_ports.get(
@@ -130,7 +134,7 @@ def historical_data(signature: str, timeframe_hours: int = 24) -> dict[str, Any]
 
 @mcp_tools.tool()
 def threat_assessment(
-    alert_type: str, severity: str, source_ip: str = None, ports: list[int] = None
+    alert_type: str, severity: str, source_ip: str | None = None, ports: list[int] | None = None
 ) -> dict[str, Any]:
     """
     Perform a comprehensive threat assessment based on alert data

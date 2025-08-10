@@ -147,17 +147,21 @@ class IntegratedMCPClient:
                 final_text.append(f"[Calling tool {tool_name} with args {tool_args}]")
 
                 assistant_message_content.append(content)
-                messages.append({"role": "assistant", "content": assistant_message_content})
+                messages.append(
+                    {"role": "assistant", "content": " ".join(assistant_message_content)}
+                )
                 messages.append(
                     {
                         "role": "user",
-                        "content": [
-                            {
-                                "type": "tool_result",
-                                "tool_use_id": content.id,
-                                "content": str(result),
-                            }
-                        ],
+                        "content": str(
+                            [
+                                {
+                                    "type": "tool_result",
+                                    "tool_use_id": content.id,
+                                    "content": str(result),
+                                }
+                            ]
+                        ),
                     }
                 )
 

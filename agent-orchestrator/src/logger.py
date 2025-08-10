@@ -1,11 +1,12 @@
 import logging
-import os
 import sys
 
 
 # Configure the root logger
 def setup_logger(
-    name: str = "agent-orchestrator", level: int | str = None, log_file: str | None = None
+    name: str = "agent-orchestrator",
+    level: logging._Level = logging.INFO,
+    log_file: str | None = None,
 ) -> logging.Logger:
     """
     Set up a logger with configurable name, level, and optional file output
@@ -18,10 +19,6 @@ def setup_logger(
     Returns:
         The configured logger instance
     """
-    # Use environment variable for log level if not explicitly provided
-    if level is None:
-        level_name = os.environ.get("LOG_LEVEL", "INFO").upper()
-        level = getattr(logging, level_name, logging.INFO)
     # Create logger
     logger = logging.getLogger(name)
     logger.setLevel(level)

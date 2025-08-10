@@ -53,12 +53,12 @@ async def process_alert(request: AlertRequest):
 
         return AgentResponse(response=result)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error processing alert: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error processing alert: {str(e)}") from e
 
 
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    uvicorn.run(app, host="127.0.0.1", port=8001)
