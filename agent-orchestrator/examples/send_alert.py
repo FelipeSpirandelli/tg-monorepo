@@ -46,7 +46,7 @@ User: {alert[details][user]}
 
 {tools_instruction}
 
-Please analyze this security alert and recommend appropriate actions. 
+Please analyze this security alert and recommend appropriate actions.
 Use the available tools to check if this is a known pattern and suggest remediation steps.
 """
             }

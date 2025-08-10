@@ -22,7 +22,7 @@ The system is composed of a single, consolidated component:
 
 ### Component
 
-**Agent Orchestrator**  
+**Agent Orchestrator**
 A unified service that handles:
 
 - **Webhook/API Reception**: Receives external requests via FastAPI

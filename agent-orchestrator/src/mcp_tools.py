@@ -1,6 +1,7 @@
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
+
 from src.logger import logger
 
 # Create an MCP server instance for tools

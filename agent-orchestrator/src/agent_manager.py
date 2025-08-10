@@ -55,7 +55,9 @@ class AgentManager:
 
             if os.path.exists(custom_steps_path):
                 # Dynamically import the module
-                spec = importlib.util.spec_from_file_location("register_custom_steps", custom_steps_path)
+                spec = importlib.util.spec_from_file_location(
+                    "register_custom_steps", custom_steps_path
+                )
                 if spec and spec.loader:
                     module = importlib.util.module_from_spec(spec)
                     sys.modules["register_custom_steps"] = module
