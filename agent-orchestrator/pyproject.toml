@@ -92,10 +92,10 @@ warn_no_return = true
 warn_unreachable = true
 strict_equality = true
 show_error_codes = true
+runUsingActiveInterpreter = true
 
 [[tool.mypy.overrides]]
 module = [
     "anthropic.*",
     "mcp.*",
 ]
-ignore_missing_imports = true

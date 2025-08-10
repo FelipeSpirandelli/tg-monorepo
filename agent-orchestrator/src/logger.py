@@ -5,7 +5,7 @@ import sys
 # Configure the root logger
 def setup_logger(
     name: str = "agent-orchestrator",
-    level: logging._Level = logging.INFO,
+    level: int | str = logging.INFO,
     log_file: str | None = None,
 ) -> logging.Logger:
     """

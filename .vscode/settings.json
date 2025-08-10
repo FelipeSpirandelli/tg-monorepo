@@ -1,0 +1,23 @@
+{
+
+  "isort.check": false,
+
+  // Format on save using the configured tools
+  "editor.formatOnSave": true,
+  "editor.codeActionsOnSave": {
+    "source.organizeImports": "always"
+  },
+
+  // File associations
+  "[python]": {
+    "editor.defaultFormatter": "ms-python.black-formatter",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.organizeImports": "always"
+    }
+  },
+
+  // Ruff extension settings
+  "ruff.organizeImports": true,
+  "ruff.fixAll": true
+}

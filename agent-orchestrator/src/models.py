@@ -15,22 +15,10 @@ class AlertData(BaseModel):
     )
 
 
-class PipelineConfig(BaseModel):
-    """Configuration for a pipeline run"""
-
-    steps: list[str] = Field(..., description="List of pipeline step names to execute in order")
-    step_config: dict[str, dict[str, Any]] = Field(
-        default_factory=dict, description="Configuration for individual pipeline steps"
-    )
-
-
 class AlertRequest(BaseModel):
     """Request model for alert processing"""
 
     alert_data: AlertData = Field(..., description="The alert data to process")
-    pipeline_config: PipelineConfig | None = Field(
-        None, description="Optional custom pipeline configuration"
-    )
 
 
 class AgentResponse(BaseModel):

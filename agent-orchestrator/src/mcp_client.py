@@ -1,8 +1,11 @@
+from collections.abc import Callable
+from typing import Any
+
 from anthropic import Anthropic
 
 from config import Config
 from src.logger import logger
-from src.mcp_tools import get_mcp_tools_instance
+from src.tools import get_mcp_tools_instance
 
 
 class IntegratedMCPClient:
@@ -20,7 +23,7 @@ class IntegratedMCPClient:
         # Note: FastMCP doesn't expose tools directly, so we'll manually define them
         self.available_tools = [
             {
-                "name": "add",
+                "name": "add_numbers",
                 "description": "Add two numbers",
                 "input_schema": {
                     "type": "object",
@@ -32,7 +35,7 @@ class IntegratedMCPClient:
                 },
             },
             {
-                "name": "ip_lookup",
+                "name": "lookup_ip",
                 "description": "Look up reputation and geolocation data for an IP address",
                 "input_schema": {
                     "type": "object",
@@ -43,7 +46,7 @@ class IntegratedMCPClient:
                 },
             },
             {
-                "name": "port_analyzer",
+                "name": "analyze_ports",
                 "description": "Analyze if specific ports are commonly associated with threats",
                 "input_schema": {
                     "type": "object",
@@ -58,7 +61,7 @@ class IntegratedMCPClient:
                 },
             },
             {
-                "name": "historical_data",
+                "name": "get_historical_data",
                 "description": "Check if similar patterns have been seen before in historical data",
                 "input_schema": {
                     "type": "object",
@@ -77,7 +80,7 @@ class IntegratedMCPClient:
                 },
             },
             {
-                "name": "threat_assessment",
+                "name": "assess_threat",
                 "description": "Perform a comprehensive threat assessment based on alert data",
                 "input_schema": {
                     "type": "object",
@@ -180,8 +183,8 @@ class IntegratedMCPClient:
     async def _execute_tool(self, tool_name: str, tool_args: dict):
         """Execute a tool call using the integrated MCP tools"""
         try:
-            # Import the tool functions from mcp_tools
-            from .mcp_tools import (
+            # Import the tool functions from tools module
+            from .tools import (
                 add,
                 historical_data,
                 ip_lookup,
@@ -189,13 +192,13 @@ class IntegratedMCPClient:
                 threat_assessment,
             )
 
-            # Map tool names to functions
-            tool_functions = {
-                "add": add,
-                "ip_lookup": ip_lookup,
-                "port_analyzer": port_analyzer,
-                "historical_data": historical_data,
-                "threat_assessment": threat_assessment,
+            # Define the type of tool functions
+            tool_functions: dict[str, Callable[..., Any]] = {
+                "add_numbers": add,
+                "lookup_ip": ip_lookup,
+                "analyze_ports": port_analyzer,
+                "get_historical_data": historical_data,
+                "assess_threat": threat_assessment,
             }
 
             if tool_name not in tool_functions:

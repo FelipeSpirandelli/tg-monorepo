@@ -5,7 +5,7 @@ from typing import Any
 
 from src.logger import logger
 from src.mcp_client import IntegratedMCPClient
-from src.pipeline_processor import PipelineProcessor
+from src.processors import PipelineProcessor
 
 
 class AgentManager:
@@ -29,7 +29,7 @@ class AgentManager:
 
     def register_pipeline_steps(self):
         """Register available pipeline steps"""
-        from .pipeline_steps import (
+        from .processors import (
             AlertProcessingStep,
             MCPQueryStep,
             PromptGenerationStep,
