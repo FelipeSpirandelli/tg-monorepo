@@ -122,7 +122,7 @@ class IntegratedMCPClient:
         Returns:
             The model's response as a string
         """
-        messages = [{"role": "user", "content": query}]
+        messages: list[dict[str, str | list[dict[str, str]]]] = [{"role": "user", "content": query}]
 
         # Initial Claude API call
         response = self.anthropic.messages.create(
@@ -135,48 +135,54 @@ class IntegratedMCPClient:
 
         # Process response and handle tool calls
         final_text = []
+        max_iterations = 5  # Prevent infinite loops
 
-        assistant_message_content = []
-        for content in response.content:
-            if content.type == "text":
-                final_text.append(content.text)
-                assistant_message_content.append(content)
-            elif content.type == "tool_use":
-                tool_name = content.name
-                tool_args = content.input
+        for _ in range(max_iterations):
+            assistant_message_content = []
+            tool_calls_found = False
 
-                # Execute tool call using integrated tools
-                result = await self._execute_tool(tool_name, tool_args)
-                final_text.append(f"[Calling tool {tool_name} with args {tool_args}]")
+            for content in response.content:
+                if content.type == "text":
+                    final_text.append(content.text)
+                    assistant_message_content.append(content)
+                elif content.type == "tool_use":
+                    tool_calls_found = True
+                    assistant_message_content.append(content)
 
-                assistant_message_content.append(content)
-                messages.append(
-                    {"role": "assistant", "content": " ".join(assistant_message_content)}
-                )
-                messages.append(
-                    {
-                        "role": "user",
-                        "content": str(
-                            [
-                                {
-                                    "type": "tool_result",
-                                    "tool_use_id": content.id,
-                                    "content": str(result),
-                                }
-                            ]
-                        ),
-                    }
-                )
+            # If no tool calls were found, we're done
+            if not tool_calls_found:
+                break
 
-                # Get next response from Claude
-                response = self.anthropic.messages.create(
-                    model=model,
-                    max_tokens=max_tokens,
-                    messages=messages,
-                    tools=self.available_tools,
-                )
+            # Add assistant message with tool calls
+            messages.append({"role": "assistant", "content": assistant_message_content})
 
-                final_text.append(response.content[0].text)
+            # Execute tools and create tool results
+            tool_results = []
+            for content in assistant_message_content:
+                if content.type == "tool_use":
+                    tool_name = content.name
+                    tool_args = content.input
+                    result = await self._execute_tool(tool_name, tool_args)
+                    final_text.append(f"[Calling tool {tool_name} with args {tool_args}]")
+
+                    tool_results.append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": content.id,
+                            "content": str(result),
+                        }
+                    )
+
+            # Add tool results message
+            messages.append({"role": "user", "content": tool_results})
+
+            # Get next response from Claude
+            response = self.anthropic.messages.create(
+                model=model,
+                max_tokens=max_tokens,
+                messages=messages,
+                tools=self.available_tools,
+            )
 
         return "\n".join(final_text)
 

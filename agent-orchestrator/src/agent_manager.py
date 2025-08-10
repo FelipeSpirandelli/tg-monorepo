@@ -85,6 +85,10 @@ class AgentManager:
             return result
         except Exception as e:
             logger.error(f"Error processing alert: {str(e)}")
+            logger.error(f"Alert data: {alert_data}")
+            import traceback
+
+            logger.error(f"Traceback: {traceback.format_exc()}")
             raise
 
     async def run_agent(self, agent_name: str, query: str) -> str:

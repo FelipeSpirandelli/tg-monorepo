@@ -19,6 +19,10 @@ class PromptGenerationStep(PipelineStep):
         processed_alert = data["processed_alert"]
         prompt_template = data.get("prompt_template", self._get_default_prompt_template())
 
+        # Validate processed_alert is a dictionary
+        if not isinstance(processed_alert, dict):
+            raise ValueError("processed_alert must be a dictionary")
+
         # Build context for the prompt
         prompt_context = {
             "alert": processed_alert,

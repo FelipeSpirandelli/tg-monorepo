@@ -25,33 +25,6 @@ alert_data = {
             "user": "admin",
         },
     },
-    # Optional pipeline configuration
-    "pipeline_config": {
-        "steps": ["alert_processing", "prompt_generation", "mcp_query", "response_formatting"],
-        "step_config": {
-            "prompt_generation": {
-                "prompt_template": """
-I received a security alert with the following information:
-- Type: {alert[alert_type]}
-- Source: {alert[source]}
-- Severity: {alert[severity]}
-- Timestamp: {alert[timestamp]}
-
-Details:
-IP Address: {alert[details][ip_address]}
-Event ID: {alert[details][event_id]}
-Rule Triggered: {alert[details][rule_triggered]}
-Attempts: {alert[details][attempts]}
-User: {alert[details][user]}
-
-{tools_instruction}
-
-Please analyze this security alert and recommend appropriate actions.
-Use the available tools to check if this is a known pattern and suggest remediation steps.
-"""
-            }
-        },
-    },
 }
 
 
