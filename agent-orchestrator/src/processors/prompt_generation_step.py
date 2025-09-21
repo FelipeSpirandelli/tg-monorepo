@@ -37,16 +37,46 @@ class PromptGenerationStep(PipelineStep):
     def _get_default_prompt_template(self) -> str:
         """Get the default prompt template"""
         return """
-I received an alert with the following information:
-- Type: {alert[alert_type]}
-- Source: {alert[source]}
-- Severity: {alert[severity]}
-- Timestamp: {alert[timestamp]}
+I received an alert from Elastic Security with the following information:
 
-Details:
-{alert[details]}
+## Alert Details:
+- Alert ID: {alert[alert_id]}
+- Alert UUID: {alert[alert_uuid]}
+- Timestamp: {alert[timestamp]}
+- Action Group: {alert[action_group_name]}
+- Flapping: {alert[flapping]}
+- Consecutive Matches: {alert[consecutive_matches]}
+
+## Rule Information:
+- Rule Name: {alert[rule_name]}
+- Rule ID: {alert[rule_id]}
+- Severity: {alert[severity]}
+- Risk Score: {alert[risk_score]}
+- Rule Type: {alert[rule_type]}
+- Description: {alert[rule_description]}
+
+## MITRE ATT&CK Framework:
+- Tactics: {alert[mitre_tactics]}
+- Techniques: {alert[mitre_techniques]}
+
+## Query Details:
+{alert[query]}
+
+## References:
+{alert[references]}
+
+## False Positives:
+{alert[false_positives]}
 
 {tools_instruction}
 
-Please analyze this alert and recommend appropriate actions.
+Please analyze this security alert and provide:
+1. A summary of the threat
+2. Potential impact assessment
+3. Recommended immediate actions
+4. Investigation steps to take
+5. Prevention measures to consider
+
+Focus particularly on the MITRE ATT&CK techniques and tactics identified to provide
+context-aware recommendations.
 """

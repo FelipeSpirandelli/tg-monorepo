@@ -18,12 +18,82 @@ class AlertProcessingStep(PipelineStep):
         """Process the alert data"""
         alert_data = data["alert_data"]
 
+        # Extract information from the ElasticAlertData model
         processed_alert = {
-            "alert_type": alert_data.get("type", "unknown"),
-            "source": alert_data.get("source", "unknown"),
-            "severity": alert_data.get("severity", "medium"),
             "timestamp": alert_data.get("timestamp"),
-            "details": alert_data.get("details", {}),
+            "request_id": alert_data.get("id"),
+            "method": alert_data.get("method"),
+            "url": alert_data.get("url"),
+            "remote_addr": alert_data.get("remote_addr"),
+            "user_agent": alert_data.get("user_agent"),
         }
+
+        # Extract parsed alert information if available
+        if alert_data.get("alert"):
+            alert_info = alert_data["alert"]
+            processed_alert.update(
+                {
+                    "alert_id": alert_info.get("id"),
+                    "alert_uuid": alert_info.get("uuid"),
+                    "action_group": alert_info.get("action_group"),
+                    "action_group_name": alert_info.get("action_group_name"),
+                    "flapping": alert_info.get("flapping"),
+                    "consecutive_matches": alert_info.get("consecutive_matches"),
+                }
+            )
+
+        # Extract parsed rule information if available
+        if alert_data.get("rule"):
+            rule_info = alert_data["rule"]
+            rule_params = rule_info.get("params", {})
+            processed_alert.update(
+                {
+                    "rule_id": rule_info.get("id"),
+                    "rule_name": rule_info.get("name"),
+                    "rule_type": rule_info.get("type"),
+                    "rule_url": rule_info.get("url"),
+                    "rule_tags": rule_info.get("tags", []),
+                    "space_id": rule_info.get("space_id"),
+                    "rule_description": rule_params.get("description"),
+                    "severity": rule_params.get("severity", "medium"),
+                    "risk_score": rule_params.get("risk_score"),
+                    "threat": rule_params.get("threat", []),
+                    "query": rule_params.get("query"),
+                    "false_positives": rule_params.get("false_positives", []),
+                    "references": rule_params.get("references", []),
+                    "mitre_tactics": [],
+                    "mitre_techniques": [],
+                }
+            )
+
+            # Extract MITRE ATT&CK information from threat field
+            for threat_item in rule_params.get("threat", []):
+                if threat_item.get("tactic"):
+                    processed_alert["mitre_tactics"].append(
+                        {
+                            "id": threat_item["tactic"].get("id"),
+                            "name": threat_item["tactic"].get("name"),
+                            "reference": threat_item["tactic"].get("reference"),
+                        }
+                    )
+
+                for technique in threat_item.get("technique", []):
+                    technique_info = {
+                        "id": technique.get("id"),
+                        "name": technique.get("name"),
+                        "reference": technique.get("reference"),
+                        "subtechniques": [],
+                    }
+
+                    for subtechnique in technique.get("subtechnique", []):
+                        technique_info["subtechniques"].append(
+                            {
+                                "id": subtechnique.get("id"),
+                                "name": subtechnique.get("name"),
+                                "reference": subtechnique.get("reference"),
+                            }
+                        )
+
+                    processed_alert["mitre_techniques"].append(technique_info)
 
         return {"processed_alert": processed_alert}
