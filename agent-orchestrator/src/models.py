@@ -78,7 +78,6 @@ class ElasticAlertData(BaseModel):
     """Complete alert data from Elastic including metadata and extracted form data"""
 
     timestamp: str = Field(..., description="Alert timestamp")
-    id: int = Field(..., description="Alert ID")
     method: str = Field(..., description="HTTP method")
     headers: dict[str, str] = Field(..., description="HTTP headers")
     url: str = Field(..., description="Request URL")
