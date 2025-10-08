@@ -1,0 +1,584 @@
+###
+# LLM Cybersecurity Agent - Demo Alerts for Professor Presentation
+# 
+# This file contains realistic security alerts to demonstrate the capabilities
+# of the cybersecurity LLM agent system developed for graduation project.
+#
+# Usage: Use VS Code REST Client extension or curl to send these requests
+# Make sure the server is running: python -m uvicorn main:app --host 0.0.0.0 --port 8000
+###
+
+### Health Check
+GET http://localhost:8000/health
+
+###
+# DEMO 1: Advanced Persistent Threat (APT) - Malware C2 Communication
+# This demonstrates detection of sophisticated Command & Control infrastructure
+POST http://localhost:8000/alert
+Content-Type: application/json
+
+{
+  "timestamp": "2025-09-24T14:30:00Z",
+  "method": "POST",
+  "url": "https://elastic.company.com/webhook",
+  "remote_addr": "10.0.1.100",
+  "user_agent": "Elastic-Security-Webhook/1.0",
+  "headers": {"content-type": "application/json"},
+  "form_data": {},
+  "alert": {
+    "id": "apt-c2-communication-001",
+    "uuid": "11111111-1111-1111-1111-111111111111",
+    "actionGroup": "security.threat",
+    "actionGroupName": "Advanced Persistent Threat Detection",
+    "flapping": false,
+    "consecutiveMatches": 3
+  },
+  "rule": {
+    "id": "rule-apt-c2-detection",
+    "name": "APT C2 Communication Pattern",
+    "type": "query",
+    "url": "https://elastic.company.com/rules/apt-c2-detection",
+    "tags": ["apt", "c2", "command_control", "steganography", "exfiltration"],
+    "spaceId": "security",
+    "params": {
+      "author": ["Advanced Threat Research Team", "SOC Tier 3"],
+      "description": "Detects sophisticated command and control communication patterns indicative of Advanced Persistent Threat (APT) activity, including encrypted payload delivery and steganographic data exfiltration attempts",
+      "from": "now-15m",
+      "ruleId": "rule-apt-c2-detection",
+      "immutable": false,
+      "license": "Elastic License v2",
+      "maxSignals": 25,
+      "riskScore": 99,
+      "severity": "critical",
+      "to": "now",
+      "version": 4,
+      "type": "query",
+      "language": "kuery",
+      "falsePositives": ["Legitimate encrypted communications", "Software update mechanisms"],
+      "references": [
+        "https://attack.mitre.org/tactics/TA0011/",
+        "https://attack.mitre.org/techniques/T1071/",
+        "https://attack.mitre.org/techniques/T1041/",
+        "https://www.mitre.org/sites/default/files/publications/pr-13-1028-mitre-10-strategies-cyber-ops-center.pdf"
+      ],
+      "threat": [
+        {
+          "tactic": {
+            "id": "TA0011",
+            "name": "Command and Control",
+            "reference": "https://attack.mitre.org/tactics/TA0011/"
+          },
+          "technique": [
+            {
+              "id": "T1071",
+              "name": "Application Layer Protocol",
+              "reference": "https://attack.mitre.org/techniques/T1071/",
+              "subtechnique": [
+                {
+                  "id": "T1071.001",
+                  "name": "Web Protocols",
+                  "reference": "https://attack.mitre.org/techniques/T1071/001/"
+                },
+                {
+                  "id": "T1071.004",
+                  "name": "DNS",
+                  "reference": "https://attack.mitre.org/techniques/T1071/004/"
+                }
+              ]
+            },
+            {
+              "id": "T1573",
+              "name": "Encrypted Channel",
+              "reference": "https://attack.mitre.org/techniques/T1573/"
+            }
+          ]
+        },
+        {
+          "tactic": {
+            "id": "TA0010",
+            "name": "Exfiltration",
+            "reference": "https://attack.mitre.org/tactics/TA0010/"
+          },
+          "technique": [
+            {
+              "id": "T1041",
+              "name": "Exfiltration Over C2 Channel",
+              "reference": "https://attack.mitre.org/techniques/T1041/"
+            },
+            {
+              "id": "T1030",
+              "name": "Data Transfer Size Limits",
+              "reference": "https://attack.mitre.org/techniques/T1030/"
+            }
+          ]
+        }
+      ],
+      "query": "network.direction:outbound AND destination.ip:(185.220.101.5 OR 194.87.45.12) AND (destination.port:(443 OR 8080 OR 9001) OR dns.question.name:*.onion) AND process.name:(chrome.exe OR firefox.exe OR tor.exe OR suspicious_process.exe)"
+    }
+  }
+}
+
+###
+# DEMO 2: SSH Brute Force Attack
+# This demonstrates credential-based attack detection with multiple IoCs
+POST http://localhost:8000/alert
+Content-Type: application/json
+
+{
+  "timestamp": "2025-09-24T14:35:00Z",
+  "method": "POST",
+  "url": "https://elastic.company.com/webhook",
+  "remote_addr": "10.0.1.50",
+  "user_agent": "Elastic-Security-Webhook/1.0",
+  "headers": {"content-type": "application/json"},
+  "form_data": {},
+  "alert": {
+    "id": "ssh-brute-force-demo-001",
+    "uuid": "22222222-2222-2222-2222-222222222222",
+    "actionGroup": "security.threat",
+    "actionGroupName": "Credential Access Attempt",
+    "flapping": false,
+    "consecutiveMatches": 25
+  },
+  "rule": {
+    "id": "rule-ssh-brute-force-advanced",
+    "name": "DEMO: SSH Brute Force Attack - International Source",
+    "type": "query",
+    "url": "https://elastic.company.com/rules/ssh-brute-force-advanced",
+    "tags": ["credential_access", "brute_force", "ssh", "international_threat", "botnet"],
+    "spaceId": "security",
+    "params": {
+      "author": ["International Threat Intelligence", "SOC Analysts"],
+      "description": "Detects systematic SSH brute force attacks originating from international IP addresses, potentially indicating botnet or coordinated threat actor activity targeting administrative access credentials",
+      "from": "now-10m",
+      "ruleId": "rule-ssh-brute-force-advanced",
+      "immutable": false,
+      "license": "Elastic License v2",
+      "maxSignals": 150,
+      "riskScore": 88,
+      "severity": "high",
+      "to": "now",
+      "version": 2,
+      "type": "query",
+      "language": "kuery",
+      "falsePositives": [
+        "Legitimate international remote access",
+        "Emergency administrative access",
+        "Vendor support access with failed credentials"
+      ],
+      "references": [
+        "https://attack.mitre.org/techniques/T1110/",
+        "https://attack.mitre.org/techniques/T1110/001/",
+        "https://attack.mitre.org/techniques/T1078/",
+        "https://www.sans.org/white-papers/35597/"
+      ],
+      "threat": [
+        {
+          "tactic": {
+            "id": "TA0006",
+            "name": "Credential Access",
+            "reference": "https://attack.mitre.org/tactics/TA0006/"
+          },
+          "technique": [
+            {
+              "id": "T1110",
+              "name": "Brute Force",
+              "reference": "https://attack.mitre.org/techniques/T1110/",
+              "subtechnique": [
+                {
+                  "id": "T1110.001",
+                  "name": "Password Guessing",
+                  "reference": "https://attack.mitre.org/techniques/T1110/001/"
+                },
+                {
+                  "id": "T1110.003",
+                  "name": "Password Spraying",
+                  "reference": "https://attack.mitre.org/techniques/T1110/003/"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tactic": {
+            "id": "TA0001",
+            "name": "Initial Access",
+            "reference": "https://attack.mitre.org/tactics/TA0001/"
+          },
+          "technique": [
+            {
+              "id": "T1078",
+              "name": "Valid Accounts",
+              "reference": "https://attack.mitre.org/techniques/T1078/"
+            },
+            {
+              "id": "T1133",
+              "name": "External Remote Services",
+              "reference": "https://attack.mitre.org/techniques/T1133/"
+            }
+          ]
+        }
+      ],
+      "query": "event.category:authentication AND event.outcome:failure AND source.ip:(194.87.45.12 OR 185.153.196.90 OR 80.239.202.41) AND destination.port:22 AND user.name:(root OR admin OR administrator OR ubuntu OR ec2-user OR centos OR oracle OR postgres OR mysql OR nginx OR apache OR service OR backup OR test OR guest OR jenkins OR docker OR kubernetes OR elastic OR kibana OR grafana OR prometheus) AND event.count:>=15"
+    }
+  }
+}
+
+###
+# DEMO 3: Data Exfiltration Attempt
+# This demonstrates detection of sensitive data theft
+POST http://localhost:8000/alert
+Content-Type: application/json
+
+{
+  "timestamp": "2025-09-24T14:40:00Z",
+  "method": "POST",
+  "url": "https://elastic.company.com/webhook",
+  "remote_addr": "10.0.1.75",
+  "user_agent": "Elastic-Security-Webhook/1.0",
+  "headers": {"content-type": "application/json"},
+  "form_data": {},
+  "alert": {
+    "id": "data-exfiltration-demo-001",
+    "uuid": "33333333-3333-3333-3333-333333333333",
+    "actionGroup": "security.threat",
+    "actionGroupName": "Data Loss Prevention Alert",
+    "flapping": false,
+    "consecutiveMatches": 1
+  },
+  "rule": {
+    "id": "rule-data-exfiltration",
+    "name": "DEMO: Sensitive Data Exfiltration via Encrypted Channels",
+    "type": "query",
+    "url": "https://elastic.company.com/rules/data-exfiltration",
+    "tags": ["data_exfiltration", "encryption", "steganography", "intellectual_property"],
+    "spaceId": "security",
+    "params": {
+      "author": ["Data Loss Prevention Team", "Privacy Officers"],
+      "description": "Detects potential exfiltration of sensitive data including customer information, intellectual property, and financial records through encrypted communication channels or cloud storage services",
+      "from": "now-5m",
+      "ruleId": "rule-data-exfiltration",
+      "immutable": false,
+      "license": "Elastic License v2",
+      "maxSignals": 10,
+      "riskScore": 95,
+      "severity": "critical",
+      "to": "now",
+      "version": 1,
+      "type": "query",
+      "language": "kuery",
+      "falsePositives": [
+        "Legitimate backup operations",
+        "Authorized data migrations",
+        "Business intelligence exports"
+      ],
+      "references": [
+        "https://attack.mitre.org/tactics/TA0010/",
+        "https://attack.mitre.org/techniques/T1041/",
+        "https://attack.mitre.org/techniques/T1567/",
+        "https://owasp.org/www-project-top-10-privacy-risks/"
+      ],
+      "threat": [
+        {
+          "tactic": {
+            "id": "TA0010",
+            "name": "Exfiltration",
+            "reference": "https://attack.mitre.org/tactics/TA0010/"
+          },
+          "technique": [
+            {
+              "id": "T1041",
+              "name": "Exfiltration Over C2 Channel",
+              "reference": "https://attack.mitre.org/techniques/T1041/"
+            },
+            {
+              "id": "T1567",
+              "name": "Exfiltration Over Web Service",
+              "reference": "https://attack.mitre.org/techniques/T1567/",
+              "subtechnique": [
+                {
+                  "id": "T1567.002",
+                  "name": "Exfiltration to Cloud Storage",
+                  "reference": "https://attack.mitre.org/techniques/T1567/002/"
+                }
+              ]
+            },
+            {
+              "id": "T1030",
+              "name": "Data Transfer Size Limits",
+              "reference": "https://attack.mitre.org/techniques/T1030/"
+            }
+          ]
+        },
+        {
+          "tactic": {
+            "id": "TA0009",
+            "name": "Collection",
+            "reference": "https://attack.mitre.org/tactics/TA0009/"
+          },
+          "technique": [
+            {
+              "id": "T1005",
+              "name": "Data from Local System",
+              "reference": "https://attack.mitre.org/techniques/T1005/"
+            },
+            {
+              "id": "T1039",
+              "name": "Data from Network Shared Drive",
+              "reference": "https://attack.mitre.org/techniques/T1039/"
+            }
+          ]
+        }
+      ],
+      "query": "network.direction:outbound AND destination.ip:(185.220.101.5 OR 194.87.45.12) AND (file.name:(*customer* OR *financial* OR *confidential* OR *proprietary* OR *.sql OR *.csv OR *.xlsx OR *backup*) OR process.args:(*password* OR *credential* OR *secret* OR *key* OR *token*)) AND network.bytes:>10485760"
+    }
+  }
+}
+
+###
+# DEMO 4: Malware Detection - Trojan Installation
+# This demonstrates malware detection capabilities
+POST http://localhost:8000/alert
+Content-Type: application/json
+
+{
+  "timestamp": "2025-09-24T14:45:00Z",
+  "method": "POST",
+  "url": "https://elastic.company.com/webhook",
+  "remote_addr": "10.0.1.200",
+  "user_agent": "Elastic-Security-Webhook/1.0",
+  "headers": {"content-type": "application/json"},
+  "form_data": {},
+  "alert": {
+    "id": "trojan-detection-demo-001",
+    "uuid": "44444444-4444-4444-4444-444444444444",
+    "actionGroup": "security.threat",
+    "actionGroupName": "Malware Execution Detected",
+    "flapping": false,
+    "consecutiveMatches": 1
+  },
+  "rule": {
+    "id": "rule-trojan-detection",
+    "name": "DEMO: Advanced Trojan Installation and C2 Setup",
+    "type": "query",
+    "url": "https://elastic.company.com/rules/trojan-detection",
+    "tags": ["malware", "trojan", "persistence", "privilege_escalation", "defense_evasion"],
+    "spaceId": "security",
+    "params": {
+      "author": ["Malware Research Team", "Incident Response"],
+      "description": "Detects advanced trojan installation characterized by suspicious file creation, registry modification, network beaconing, and privilege escalation attempts indicative of sophisticated malware deployment",
+      "from": "now-3m",
+      "ruleId": "rule-trojan-detection",
+      "immutable": false,
+      "license": "Elastic License v2",
+      "maxSignals": 5,
+      "riskScore": 98,
+      "severity": "critical",
+      "to": "now",
+      "version": 1,
+      "type": "query",
+      "language": "kuery",
+      "falsePositives": [
+        "Legitimate software installations",
+        "System administration tasks",
+        "Security software updates"
+      ],
+      "references": [
+        "https://attack.mitre.org/tactics/TA0002/",
+        "https://attack.mitre.org/techniques/T1543/",
+        "https://attack.mitre.org/techniques/T1055/",
+        "https://attack.mitre.org/techniques/T1036/",
+        "https://www.microsoft.com/en-us/security/blog/2023/05/24/volt-typhoon-targets-us-critical-infrastructure-with-living-off-the-land-techniques/"
+      ],
+      "threat": [
+        {
+          "tactic": {
+            "id": "TA0002",
+            "name": "Execution",
+            "reference": "https://attack.mitre.org/tactics/TA0002/"
+          },
+          "technique": [
+            {
+              "id": "T1055",
+              "name": "Process Injection",
+              "reference": "https://attack.mitre.org/techniques/T1055/"
+            },
+            {
+              "id": "T1059",
+              "name": "Command and Scripting Interpreter",
+              "reference": "https://attack.mitre.org/techniques/T1059/"
+            }
+          ]
+        },
+        {
+          "tactic": {
+            "id": "TA0003",
+            "name": "Persistence",
+            "reference": "https://attack.mitre.org/tactics/TA0003/"
+          },
+          "technique": [
+            {
+              "id": "T1543",
+              "name": "Create or Modify System Process",
+              "reference": "https://attack.mitre.org/techniques/T1543/"
+            },
+            {
+              "id": "T1547",
+              "name": "Boot or Logon Autostart Execution",
+              "reference": "https://attack.mitre.org/techniques/T1547/"
+            }
+          ]
+        },
+        {
+          "tactic": {
+            "id": "TA0005",
+            "name": "Defense Evasion",
+            "reference": "https://attack.mitre.org/tactics/TA0005/"
+          },
+          "technique": [
+            {
+              "id": "T1036",
+              "name": "Masquerading",
+              "reference": "https://attack.mitre.org/techniques/T1036/"
+            },
+            {
+              "id": "T1562",
+              "name": "Impair Defenses",
+              "reference": "https://attack.mitre.org/techniques/T1562/"
+            }
+          ]
+        }
+      ],
+      "query": "process.name:(svchost.exe OR winlogon.exe OR lsass.exe OR explorer.exe) AND (file.hash.sha256:a1b2c3d4e5f6789012345678901234567890abcdef OR file.hash.md5:d41d8cd98f00b204e9800998ecf8427e) AND (registry.path:*CurrentVersion\\Run* OR network.direction:outbound) AND (process.args:(*powershell* OR *cmd* OR *wscript* OR *cscript*) OR file.path:(*temp* OR *appdata* OR *programdata*))"
+    }
+  }
+}
+
+###
+# DEMO 5: Insider Threat - Privilege Escalation
+# This demonstrates insider threat detection
+POST http://localhost:8000/alert
+Content-Type: application/json
+
+{
+  "timestamp": "2025-09-24T14:50:00Z",
+  "method": "POST",
+  "url": "https://elastic.company.com/webhook",
+  "remote_addr": "10.0.1.150",
+  "user_agent": "Elastic-Security-Webhook/1.0",
+  "headers": {"content-type": "application/json"},
+  "form_data": {},
+  "alert": {
+    "id": "insider-threat-demo-001",
+    "uuid": "55555555-5555-5555-5555-555555555555",
+    "actionGroup": "security.threat",
+    "actionGroupName": "Suspicious Privilege Escalation",
+    "flapping": false,
+    "consecutiveMatches": 2
+  },
+  "rule": {
+    "id": "rule-insider-threat",
+    "name": "DEMO: Insider Threat - Unauthorized Administrative Access",
+    "type": "query",
+    "url": "https://elastic.company.com/rules/insider-threat",
+    "tags": ["insider_threat", "privilege_escalation", "unauthorized_access", "lateral_movement"],
+    "spaceId": "security",
+    "params": {
+      "author": ["Human Resources Security", "SOC Tier 2"],
+      "description": "Detects potential insider threat activity characterized by unusual privilege escalation, accessing sensitive systems outside normal work patterns, and attempting to access restricted resources beyond job function requirements",
+      "from": "now-1h",
+      "ruleId": "rule-insider-threat",
+      "immutable": false,
+      "license": "Elastic License v2",
+      "maxSignals": 20,
+      "riskScore": 85,
+      "severity": "high",
+      "to": "now",
+      "version": 1,
+      "type": "query",
+      "language": "kuery",
+      "falsePositives": [
+        "Emergency administrative tasks",
+        "Cross-training activities",
+        "Legitimate role changes",
+        "IT support activities"
+      ],
+      "references": [
+        "https://attack.mitre.org/tactics/TA0004/",
+        "https://attack.mitre.org/techniques/T1078/",
+        "https://attack.mitre.org/techniques/T1548/",
+        "https://www.cisa.gov/sites/default/files/publications/19_1128_CISA_Insider_Threat_Guide_FINAL.pdf"
+      ],
+      "threat": [
+        {
+          "tactic": {
+            "id": "TA0004",
+            "name": "Privilege Escalation",
+            "reference": "https://attack.mitre.org/tactics/TA0004/"
+          },
+          "technique": [
+            {
+              "id": "T1078",
+              "name": "Valid Accounts",
+              "reference": "https://attack.mitre.org/techniques/T1078/",
+              "subtechnique": [
+                {
+                  "id": "T1078.003",
+                  "name": "Local Accounts",
+                  "reference": "https://attack.mitre.org/techniques/T1078/003/"
+                }
+              ]
+            },
+            {
+              "id": "T1548",
+              "name": "Abuse Elevation Control Mechanism",
+              "reference": "https://attack.mitre.org/techniques/T1548/"
+            }
+          ]
+        },
+        {
+          "tactic": {
+            "id": "TA0008",
+            "name": "Lateral Movement",
+            "reference": "https://attack.mitre.org/tactics/TA0008/"
+          },
+          "technique": [
+            {
+              "id": "T1021",
+              "name": "Remote Services",
+              "reference": "https://attack.mitre.org/techniques/T1021/"
+            }
+          ]
+        }
+      ],
+      "query": "user.name:(john.smith OR admin.temp OR service.backup) AND (event.action:(logon OR privilege_use OR object_access) OR process.name:(runas.exe OR psexec.exe OR wmic.exe)) AND (source.ip:(10.0.1.150 OR 192.168.1.100) OR destination.ip:(192.168.10.5 OR 10.0.0.1)) AND @timestamp:[now-1h TO now] AND NOT user.domain:SYSTEM"
+    }
+  }
+}
+
+###
+# Instructions for Professor Demonstration:
+# 
+# 1. Start the server:
+#    cd agent-orchestrator && python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+#
+# 2. Send any of the above alerts using VS Code REST Client or curl
+#
+# 3. Each alert will generate:
+#    - Comprehensive IoC extraction
+#    - Real-time threat intelligence via AbuseIPDB
+#    - MITRE ATT&CK framework mapping
+#    - Detailed natural language analysis
+#    - Actionable recommendations
+#    - Complete analysis saved to JSON file in llm_analysis_outputs/
+#
+# 4. Key features demonstrated:
+#    - Multi-stage LLM pipeline (Rule-to-Text)
+#    - Real threat intelligence integration
+#    - Complex IoC extraction (IPs, domains, users, ports, MITRE techniques)
+#    - Professional security analysis output
+#    - Complete audit trail and transparency
+#
+# 5. Expected response time: 30-60 seconds per alert
+# 6. File output: Comprehensive JSON analysis (30-50KB per alert)
+###
