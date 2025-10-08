@@ -40,13 +40,13 @@ class Config:
             try:
                 self.api_key = self.get_env("ANTHROPIC_API_KEY")
 
-            # RAG System Configuration
-            self.qdrant_url = self.get_env("QDRANT_URL", "http://localhost:6333")
-            self.qdrant_api_key = self.get_env_optional("QDRANT_API_KEY")
-            self.qdrant_collection = self.get_env("QDRANT_COLLECTION", "pdf_rag")
-            self.embedding_model = self.get_env(
-                "EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"
-            )
+                # RAG System Configuration
+                self.qdrant_url = self.get_env("QDRANT_URL", "http://localhost:6333")
+                self.qdrant_api_key = self.get_env_optional("QDRANT_API_KEY")
+                self.qdrant_collection = self.get_env("QDRANT_COLLECTION", "pdf_rag")
+                self.embedding_model = self.get_env(
+                    "EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"
+                )
 
             except ValueError:
                 # Use a placeholder for testing - in production this should be set
