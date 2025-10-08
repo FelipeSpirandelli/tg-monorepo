@@ -11,6 +11,12 @@ class Config:
     _instance = None
     _initialized = False
     api_key: str
+
+    # RAG System Configuration
+    qdrant_url: str
+    qdrant_api_key: str | None
+    qdrant_collection: str
+    embedding_model: str
     abuseipdb_api_key: str
 
     def __new__(cls):
@@ -18,17 +24,30 @@ class Config:
             cls._instance = super().__new__(cls)
         return cls._instance
 
-    def get_env(self, key: str) -> str:
-        value = os.getenv(key, None)
+    def get_env(self, key: str, default: str | None = None) -> str:
+        value = os.getenv(key, default)
         if value is None:
             raise ValueError(f"Environment variable {key} is not set")
         return value
+
+    def get_env_optional(self, key: str, default: str | None = None) -> str | None:
+        """Get environment variable with optional default, can return None"""
+        return os.getenv(key, default)
 
     def __init__(self):
         if not Config._initialized:
             # For testing purposes, allow empty API key
             try:
                 self.api_key = self.get_env("ANTHROPIC_API_KEY")
+
+            # RAG System Configuration
+            self.qdrant_url = self.get_env("QDRANT_URL", "http://localhost:6333")
+            self.qdrant_api_key = self.get_env_optional("QDRANT_API_KEY")
+            self.qdrant_collection = self.get_env("QDRANT_COLLECTION", "pdf_rag")
+            self.embedding_model = self.get_env(
+                "EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"
+            )
+
             except ValueError:
                 # Use a placeholder for testing - in production this should be set
                 self.api_key = "test-api-key-placeholder"
