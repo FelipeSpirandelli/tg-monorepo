@@ -140,6 +140,7 @@ class AlertRequest(BaseModel):
     """Request model for alert processing"""
 
     alert_data: ElasticAlertData = Field(..., description="The Elastic alert data to process")
+    interactive: bool = Field(default=True, description="Enable interactive chat mode for SOC analyst (default: True)")
 
 
 class AgentResponse(BaseModel):

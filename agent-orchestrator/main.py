@@ -4,8 +4,11 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from src.agent_manager import AgentManager
+from src.chat_session_manager import ChatSessionManager
 from src.logger import logger
 from src.models import AgentResponse, AlertRequest, ElasticAlertData
 
@@ -13,18 +16,77 @@ from src.models import AgentResponse, AlertRequest, ElasticAlertData
 # Define lifespan context manager
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    logger.info("Starting FastAPI application...")
     logger.info("Initializing MVC agent...")
     try:
         await agent_manager.initialize_mvc_agent()
+        # Initialize chat session manager after agent manager
+        global chat_session_manager
+        chat_session_manager = ChatSessionManager(agent_manager.mcp_client)
+        logger.info("Chat session manager initialized successfully")
+        logger.info("MVC agent initialized successfully during startup")
     except Exception as e:
-        logger.error(f"Failed to initialize MVC agent: {str(e)}")
+        logger.error(f"Failed to initialize MVC agent during startup: {str(e)}")
+        raise
     yield
-    await agent_manager.mcp_client.cleanup()
-    logger.info("Integrated MCP client cleanup completed")
+    if agent_manager.mcp_client:
+        await agent_manager.mcp_client.cleanup()
+        logger.info("Integrated MCP client cleanup completed")
+    logger.info("FastAPI application shutdown complete")
 
 
-# Initialize the agent manager
+# Initialize the agent manager and chat session manager
 agent_manager = AgentManager()
+chat_session_manager = None
+
+
+async def process_alert_interactive_mode(alert_data: dict, alert_id: str) -> dict:
+    """Process alert in interactive mode - initial pipeline + chat session creation"""
+    try:
+        # Process through initial pipeline steps (up to translation engine)
+        initial_pipeline = [
+            "alert_processing",
+            "ioc_extractor",
+            "translation_engine"
+        ]
+
+        logger.info(f"Processing alert {alert_id} in interactive mode - initial pipeline")
+        initial_result = await agent_manager.pipeline_processor.process(alert_data, initial_pipeline)
+
+        # Extract the natural language summary and analyst report
+        natural_language_summary = initial_result.get("natural_language_summary", "")
+        analyst_ready_report = initial_result.get("analyst_ready_report", {})
+
+        if not natural_language_summary:
+            raise ValueError("No natural language summary generated from initial pipeline")
+
+        # Create a chat session for interactive analysis
+        if chat_session_manager is None:
+            raise ValueError("Chat session manager not initialized")
+
+        session_id = await chat_session_manager.create_session(natural_language_summary, analyst_ready_report)
+
+        # Get the session to extract data for the response
+        session = await chat_session_manager.get_session(session_id)
+        if not session:
+            raise ValueError("Failed to retrieve created chat session")
+
+        logger.info(f"Created interactive chat session {session_id} for alert {alert_id}")
+
+        return {
+            "mode": "interactive",
+            "alert_id": alert_id,
+            "session_id": session_id,
+            "status": "chat_session_created",
+            "alert_summary": natural_language_summary,
+            "analyst_report": analyst_ready_report,
+            "recommended_playbooks": session.recommended_playbooks,
+            "message": "Interactive chat session created. Use /chat/message to interact with the agent."
+        }
+
+    except Exception as e:
+        logger.error(f"Error in interactive alert processing: {str(e)}")
+        raise
 
 
 async def save_complete_results_to_file(result: dict, alert_id: str) -> None:
@@ -73,6 +135,87 @@ async def save_complete_results_to_file(result: dict, alert_id: str) -> None:
 
 # Pass the lifespan to the FastAPI app
 app = FastAPI(title="Agent Orchestrator", lifespan=lifespan)
+
+# Alert completion endpoint for interactive sessions
+@app.post("/alert/complete")
+async def complete_interactive_alert(request: Request):
+    """Complete an interactive alert session and generate final report"""
+    try:
+        data = await request.json()
+        session_id = data.get("session_id")
+        alert_id = data.get("alert_id")
+
+        if not session_id or not alert_id:
+            raise HTTPException(status_code=400, detail="session_id and alert_id are required")
+
+        if chat_session_manager is None:
+            raise HTTPException(status_code=500, detail="Chat session manager not initialized")
+
+        # End the chat session and get the report
+        chat_result = await chat_session_manager.end_session(session_id)
+
+        if not chat_result.get("success", False):
+            raise HTTPException(status_code=400, detail=f"Failed to end chat session: {chat_result.get('error')}")
+
+        report = chat_result.get("report", {})
+
+        # Complete the remaining pipeline steps
+        # We need to reconstruct the alert data for the final steps
+        # For now, we'll create a minimal alert data structure
+        final_alert_data = {
+            "alert_data": {
+                "id": alert_id,
+                "summary": report.get("conversation_history", [{}])[-1].get("content", "") if report.get("conversation_history") else ""
+            }
+        }
+
+        # Process through final pipeline steps
+        final_pipeline = [
+            "prompt_generation",
+            "mcp_query",
+            "response_formatting"
+        ]
+
+        logger.info(f"Completing interactive alert {alert_id} - final pipeline")
+        final_result = await agent_manager.pipeline_processor.process(final_alert_data, final_pipeline)
+
+        # Merge chat results with final pipeline results
+        complete_result = {
+            "alert_id": alert_id,
+            "mode": "interactive_completed",
+            "chat_session": report,
+            "final_analysis": final_result,
+            "summary": {
+                "alert_id": alert_id,
+                "chat_messages": len(report.get("conversation_history", [])),
+                "playbooks_found": len(report.get("recommended_playbooks", [])),
+                "recommendations": len(report.get("final_recommendations", [])),
+                "completed_at": datetime.now().isoformat()
+            }
+        }
+
+        # Save complete results to file
+        await save_complete_results_to_file(complete_result, alert_id)
+
+        return AgentResponse(response=complete_result)
+
+    except Exception as e:
+        logger.error(f"Error completing interactive alert: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error completing alert: {str(e)}") from e
+
+# Mount static files (for CSS, JS, etc. if needed)
+# app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Serve chat interface HTML
+@app.get("/chat_interface.html", response_class=HTMLResponse)
+async def get_chat_interface():
+    """Serve the SOC analyst chat interface"""
+    chat_file = os.path.join(os.path.dirname(__file__), "chat_interface.html")
+    if os.path.exists(chat_file):
+        with open(chat_file, 'r', encoding='utf-8') as f:
+            return f.read()
+    else:
+        raise HTTPException(status_code=404, detail="Chat interface not found")
 
 
 @app.get("/health")
@@ -132,13 +275,20 @@ async def process_alert(request: Request):
         # Prepare the initial data with the alert
         initial_data = {"alert_data": elastic_data.model_dump()}
 
-        # Use default pipeline
-        result = await agent_manager.process_alert(initial_data)
+        # Ensure agent manager is initialized before processing
+        if agent_manager.mcp_client is None:
+            logger.info("Agent manager not initialized, initializing now...")
+            await agent_manager.initialize_mvc_agent()
 
-        # Save complete results to file for analysis
-        await save_complete_results_to_file(result, elastic_data.alert.id)
+        # Process alert in interactive mode (default behavior)
+        initial_result = await process_alert_interactive_mode(initial_data, elastic_data.alert.id)
 
-        return AgentResponse(response=result)
+        # Add chat interface URL to the response
+        chat_url = f"http://localhost:8001/chat_interface.html?alert_id={elastic_data.alert.id}&session_id={initial_result['session_id']}"
+        initial_result["chat_interface_url"] = chat_url
+        initial_result["instructions"] = f"Open this URL to analyze the alert interactively: {chat_url}"
+
+        return AgentResponse(response=initial_result)
 
     except ValueError as e:
         logger.error(f"Validation error: {str(e)}")
@@ -149,6 +299,109 @@ async def process_alert(request: Request):
 
         logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Error processing alert: {str(e)}") from e
+
+
+
+
+# Chat endpoints for interactive SOC analyst interface
+@app.post("/chat/init")
+async def initialize_chat(request: Request):
+    """Initialize a new chat session for SOC analyst interaction."""
+    try:
+        alert_summary = "Security alert detected. Please analyze and provide response recommendations."
+        analyst_report = {
+            "executive_summary": "Initial alert analysis session started."
+        }
+
+        if chat_session_manager is None:
+            raise HTTPException(status_code=500, detail="Chat session manager not initialized")
+
+        session_id = await chat_session_manager.create_session(alert_summary, analyst_report)
+
+        session = await chat_session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=500, detail="Failed to retrieve created session")
+
+        return {
+            "success": True,
+            "session_id": session_id,
+            "alert_summary": session.alert_summary,
+            "recommended_playbooks": session.recommended_playbooks
+        }
+
+    except Exception as e:
+        logger.error(f"Error initializing chat: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error initializing chat: {str(e)}") from e
+
+
+@app.post("/chat/message")
+async def send_chat_message(request: Request):
+    """Send a message in an existing chat session."""
+    try:
+        data = await request.json()
+        session_id = data.get("session_id")
+        message = data.get("message")
+
+        if not session_id or not message:
+            raise HTTPException(status_code=400, detail="session_id and message are required")
+
+        if chat_session_manager is None:
+            raise HTTPException(status_code=500, detail="Chat session manager not initialized")
+
+        result = await chat_session_manager.send_message(session_id, message)
+
+        if not result["success"]:
+            raise HTTPException(status_code=400, detail=result["error"])
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Error sending chat message: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error sending message: {str(e)}") from e
+
+
+@app.post("/chat/end")
+async def end_chat_session(request: Request):
+    """End a chat session and generate final report."""
+    try:
+        data = await request.json()
+        session_id = data.get("session_id")
+
+        if not session_id:
+            raise HTTPException(status_code=400, detail="session_id is required")
+
+        if chat_session_manager is None:
+            raise HTTPException(status_code=500, detail="Chat session manager not initialized")
+
+        result = await chat_session_manager.end_session(session_id)
+
+        if not result["success"]:
+            raise HTTPException(status_code=400, detail=result["error"])
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Error ending chat session: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error ending chat: {str(e)}") from e
+
+
+@app.get("/chat/sessions")
+async def get_active_sessions():
+    """Get list of active chat sessions."""
+    try:
+        if chat_session_manager is None:
+            raise HTTPException(status_code=500, detail="Chat session manager not initialized")
+
+        sessions = chat_session_manager.get_active_sessions()
+        return {
+            "success": True,
+            "active_sessions": sessions,
+            "total_count": chat_session_manager.get_session_count()
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting active sessions: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting sessions: {str(e)}") from e
 
 
 if __name__ == "__main__":

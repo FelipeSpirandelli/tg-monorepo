@@ -32,6 +32,7 @@ class AgentManager:
         from .processors import (
             AlertProcessingStep,
             IoCExtractorStep,
+            LLMChatStep,
             MCPQueryStep,
             PromptGenerationStep,
             ResponseFormattingStep,
@@ -47,6 +48,7 @@ class AgentManager:
         # Register Rule-to-Text pipeline steps (all require MCP client)
         self.pipeline_processor.register_step("ioc_extractor", IoCExtractorStep(self.mcp_client))
         self.pipeline_processor.register_step("translation_engine", TranslationEngineStep(self.mcp_client))
+        self.pipeline_processor.register_step("llm_chat", LLMChatStep(self.mcp_client))
 
         # Try to load custom steps if available
         self._load_custom_steps()
@@ -82,7 +84,8 @@ class AgentManager:
             "alert_processing",      # Process raw alert data
             "ioc_extractor",         # Extract IoCs using LLM
             "translation_engine",    # Convert to initial natural language
-            "prompt_generation",     # Generate prompt for LLM analysis
+            "llm_chat",             # Interactive LLM chat with playbook integration
+            "prompt_generation",     # Generate prompt for final LLM analysis
             "mcp_query",            # LLM uses MCP tools for threat intel
             "response_formatting"    # Format final response
         ]
@@ -91,8 +94,17 @@ class AgentManager:
         """Get the Rule-to-Text pipeline only (first 2 steps + initial translation)"""
         return [
             "alert_processing",
-            "ioc_extractor", 
+            "ioc_extractor",
             "translation_engine"
+        ]
+
+    def get_llm_engine_pipeline(self) -> list[str]:
+        """Get the LLM Engine pipeline (translation + interactive chat)"""
+        return [
+            "alert_processing",
+            "ioc_extractor",
+            "translation_engine",
+            "llm_chat"
         ]
 
     def get_legacy_pipeline(self) -> list[str]:
