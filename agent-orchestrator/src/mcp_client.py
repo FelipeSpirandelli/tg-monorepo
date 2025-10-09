@@ -100,6 +100,56 @@ class IntegratedMCPClient:
                     "required": ["alert_type", "severity"],
                 },
             },
+            {
+                "name": "search_playbook_knowledge",
+                "description": "Search for relevant playbook knowledge using semantic search against the RAG system. Use this to find specific procedures, response steps, and best practices from security playbooks.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Natural language query to search for relevant playbook content (e.g., 'SSH brute force response procedures', 'how to handle malware incident')"
+                        },
+                        "top_k": {
+                            "type": "integer",
+                            "description": "Maximum number of results to return",
+                            "default": 5
+                        },
+                        "filter_playbook": {
+                            "type": "string",
+                            "description": "Optional specific playbook document ID to search within"
+                        }
+                    },
+                    "required": ["query"],
+                },
+            },
+            {
+                "name": "search_security_playbooks_by_topic",
+                "description": "Search for playbooks related to a specific security incident type or topic (e.g., malware, phishing, DDoS, data breach). This provides focused results for common security scenarios.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "topic": {
+                            "type": "string",
+                            "description": "Security topic or incident type (e.g., 'malware', 'phishing', 'data breach', 'DDoS', 'brute force')"
+                        },
+                        "top_k": {
+                            "type": "integer",
+                            "description": "Number of most relevant results to return",
+                            "default": 3
+                        }
+                    },
+                    "required": ["topic"],
+                },
+            },
+            {
+                "name": "get_available_security_playbooks",
+                "description": "Get a list of all available security playbooks in the RAG system",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {},
+                },
+            },
         ]
         logger.info(f"Initialized with {len(self.available_tools)} integrated tools")
 
@@ -197,6 +247,11 @@ class IntegratedMCPClient:
                 port_analyzer,
                 threat_assessment,
             )
+            from .tools.playbook_rag import (
+                get_available_playbooks,
+                search_playbook_by_topic,
+                search_playbooks,
+            )
 
             # Define the type of tool functions
             tool_functions: dict[str, Callable[..., Any]] = {
@@ -205,6 +260,9 @@ class IntegratedMCPClient:
                 "analyze_ports": port_analyzer,
                 "get_historical_data": historical_data,
                 "assess_threat": threat_assessment,
+                "search_playbook_knowledge": search_playbooks,
+                "search_security_playbooks_by_topic": search_playbook_by_topic,
+                "get_available_security_playbooks": get_available_playbooks,
             }
 
             if tool_name not in tool_functions:

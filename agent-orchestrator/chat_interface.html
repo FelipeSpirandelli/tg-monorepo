@@ -424,6 +424,16 @@ ${data.alert_summary}
                         console.log('⚠️ No recommended playbooks provided');
                     }
 
+                    // Load existing conversation history if available
+                    if (data.existing_conversation && data.existing_conversation.length > 0) {
+                        console.log('💬 Loading existing conversation history:', data.existing_conversation.length, 'messages');
+                        data.existing_conversation.forEach(msg => {
+                            if (msg.role !== 'system') {  // Skip system messages in display
+                                addMessage(msg.role, msg.content);
+                            }
+                        });
+                    }
+
                     document.getElementById('connection-status').textContent = 'Connected';
                     document.getElementById('send-btn').disabled = false;
                     document.querySelector('.loading').style.display = 'none';
@@ -521,7 +531,7 @@ ${data.alert_summary}
 
             if (!message || !isConnected) return;
 
-            // Add user message to chat
+            // Add user message to chat immediately for better UX
             addMessage('user', message);
             input.value = '';
 
@@ -588,6 +598,10 @@ ${data.alert_summary}
             try {
                 // Get alert_id from URL parameters
                 const alertId = getUrlParameter('alert_id');
+
+                console.log('🔚 Ending chat session:', { sessionId, alertId });
+                console.log('📋 Current URL:', window.location.href);
+                console.log('🔍 URL search params:', window.location.search);
 
                 const response = await fetch(`/alert/complete`, {
                     method: 'POST',

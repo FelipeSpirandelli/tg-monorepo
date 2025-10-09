@@ -57,6 +57,14 @@ async def process_alert_interactive_mode(alert_data: dict, alert_id: str) -> dic
         natural_language_summary = initial_result.get("natural_language_summary", "")
         analyst_ready_report = initial_result.get("analyst_ready_report", {})
 
+        logger.info(f"Alert processing - Natural language summary length: {len(natural_language_summary)}")
+        logger.info(f"Alert processing - Analyst report keys: {list(analyst_ready_report.keys())}")
+
+        if natural_language_summary:
+            logger.info(f"Alert processing - Summary preview: {natural_language_summary[:200]}...")
+        else:
+            logger.warning("Alert processing - No natural language summary generated!")
+
         if not natural_language_summary:
             raise ValueError("No natural language summary generated from initial pipeline")
 
@@ -64,12 +72,17 @@ async def process_alert_interactive_mode(alert_data: dict, alert_id: str) -> dic
         if chat_session_manager is None:
             raise ValueError("Chat session manager not initialized")
 
+        logger.info(f"Creating chat session with alert summary length: {len(natural_language_summary)}")
+        logger.info(f"Chat manager instance ID before create: {id(chat_session_manager)}")
+        
         session_id = await chat_session_manager.create_session(natural_language_summary, analyst_ready_report)
 
         # Get the session to extract data for the response
         session = await chat_session_manager.get_session(session_id)
         if not session:
             raise ValueError("Failed to retrieve created chat session")
+        
+        logger.info(f"Session {session_id} created and verified in manager {id(chat_session_manager)}")
 
         logger.info(f"Created interactive chat session {session_id} for alert {alert_id}")
 
@@ -145,6 +158,10 @@ async def complete_interactive_alert(request: Request):
         session_id = data.get("session_id")
         alert_id = data.get("alert_id")
 
+        logger.info(f"Alert completion request: session_id={session_id}, alert_id={alert_id}")
+        logger.info(f"Chat manager instance ID at completion: {id(chat_session_manager) if chat_session_manager else 'None'}")
+        logger.info(f"Available sessions in manager: {list(chat_session_manager.sessions.keys()) if chat_session_manager else 'No manager'}")
+
         if not session_id or not alert_id:
             raise HTTPException(status_code=400, detail="session_id and alert_id are required")
 
@@ -155,6 +172,7 @@ async def complete_interactive_alert(request: Request):
         chat_result = await chat_session_manager.end_session(session_id)
 
         if not chat_result.get("success", False):
+            logger.error(f"Failed to end chat session: {chat_result.get('error')}")
             raise HTTPException(status_code=400, detail=f"Failed to end chat session: {chat_result.get('error')}")
 
         report = chat_result.get("report", {})
@@ -162,14 +180,23 @@ async def complete_interactive_alert(request: Request):
         # Get the original alert context from the chat session
         natural_language_summary = report.get("rule_to_text_summary", "")
         analyst_ready_report = report.get("analyst_ready_report", {})
+        conversation_history = report.get("conversation_history", [])
+        recommended_playbooks = report.get("recommended_playbooks", [])
+        final_recommendations = report.get("final_recommendations", [])
 
-        # Complete the remaining pipeline steps
-        # We need to reconstruct the alert data for the final steps
-        # For now, we'll create a minimal alert data structure
-        final_alert_data = {
-            "alert_data": {
-                "id": alert_id,
-                "summary": report.get("conversation_history", [{}])[-1].get("content", "") if report.get("conversation_history") else ""
+        logger.info(f"Retrieved chat report - Summary length: {len(natural_language_summary)}, Recommendations: {len(final_recommendations)}")
+
+        # Create pipeline data with all the context from the chat session
+        # This includes the original alert context plus the chat insights
+        pipeline_data = {
+            "natural_language_summary": natural_language_summary,
+            "analyst_ready_report": analyst_ready_report,
+            "conversation_history": conversation_history,
+            "recommended_playbooks": recommended_playbooks,
+            "chat_insights": {
+                "final_recommendations": final_recommendations,
+                "message_count": len(conversation_history),
+                "playbook_count": len(recommended_playbooks)
             }
         }
 
@@ -180,8 +207,8 @@ async def complete_interactive_alert(request: Request):
             "response_formatting"
         ]
 
-        logger.info(f"Completing interactive alert {alert_id} - final pipeline")
-        final_result = await agent_manager.pipeline_processor.process(final_alert_data, final_pipeline)
+        logger.info(f"Completing interactive alert {alert_id} - running final pipeline steps")
+        final_result = await agent_manager.pipeline_processor.process(pipeline_data, final_pipeline)
 
         # Merge chat results with final pipeline results
         complete_result = {
@@ -343,7 +370,8 @@ async def initialize_chat(request: Request):
                     "session_id": session_id_param,
                     "alert_id": existing_session.alert_summary[:50] + "..." if existing_session.alert_summary else alert_id,
                     "alert_summary": existing_session.alert_summary,
-                    "recommended_playbooks": existing_session.recommended_playbooks
+                    "recommended_playbooks": existing_session.recommended_playbooks,
+                    "existing_conversation": existing_session.conversation_history
                 }
             else:
                 logger.warning(f"Session {session_id_param} not found, creating new session")
@@ -375,7 +403,8 @@ async def initialize_chat(request: Request):
             "session_id": session_id,
             "alert_id": alert_id or "new_session",
             "alert_summary": session.alert_summary,
-            "recommended_playbooks": session.recommended_playbooks
+            "recommended_playbooks": session.recommended_playbooks,
+            "existing_conversation": session.conversation_history
         }
 
     except Exception as e:

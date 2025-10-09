@@ -30,32 +30,50 @@ class ChatSession:
         self.conversation_history: List[Dict[str, str]] = []
         self.recommended_playbooks: List[Dict[str, Any]] = []
 
+        logger.info(f"ChatSession created - Alert summary length: {len(alert_summary)}")
+        logger.info(f"ChatSession created - Analyst report keys: {list(analyst_report.keys())}")
+        if alert_summary:
+            logger.info(f"ChatSession created - Alert summary preview: {alert_summary[:100]}...")
+
         # Initialize conversation
         self._initialize_conversation()
 
     def _initialize_conversation(self):
         """Initialize the conversation with system prompt and initial user message."""
-        system_prompt = """You are an expert SOC analyst assistant with access to security playbooks and threat intelligence tools.
+        # Properly format the system prompt with actual alert context
+        executive_summary = self.analyst_report.get('executive_summary', 'No executive summary available') if self.analyst_report else 'No analyst report available'
+
+        system_prompt = f"""You are an expert SOC analyst assistant with access to security playbooks and threat intelligence tools.
 
 Your role is to help SOC analysts understand and respond to security alerts by:
 1. Analyzing the alert details and providing clear explanations
-2. Searching relevant security playbooks using available tools
-3. Recommending specific response actions based on best practices
+2. Searching relevant security playbooks using the search_playbook_knowledge or search_security_playbooks_by_topic tools
+3. Recommending specific response actions based on best practices from the playbooks
 4. Answering follow-up questions and providing additional context
 
-Always use the playbook_rag tool when recommending response procedures to ensure accuracy and completeness.
+IMPORTANT: When asked about response procedures, incident handling, or playbooks, you MUST use one of these tools:
+- search_playbook_knowledge: For specific queries about procedures (e.g., "SSH brute force response steps")
+- search_security_playbooks_by_topic: For topic-based searches (e.g., topic="brute force")
+- get_available_security_playbooks: To see what playbooks are available
+
+Do not make up procedures - always search the playbook database using the tools.
 
 The conversation should continue until the analyst explicitly ends it.
 
 **Alert Context:**
 - Rule-to-Text Summary: {self.alert_summary}
-- Analyst Report: {self.analyst_report.get('executive_summary', 'No executive summary available')}
+- Analyst Report: {executive_summary}
 
 Use this context to provide informed analysis and recommendations."""
 
+        logger.info(f"System prompt created - Length: {len(system_prompt)}")
+        logger.info(f"System prompt preview: {system_prompt[:200]}...")
+        logger.info(f"Alert summary in prompt: {self.alert_summary[:100] if self.alert_summary else 'None'}...")
+        logger.info(f"Executive summary in prompt: {executive_summary[:100] if executive_summary else 'None'}...")
+
         self.conversation_history = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": "I need your help analyzing this security alert. Please provide analysis and recommendations based on the rule-to-text summary and analyst report provided in your system context."}
+            {"role": "user", "content": "I need your help analyzing this security alert. Please provide analysis and recommendations based on the rule-to-text summary and analyst report provided in your system context. Use the search_playbook_knowledge or search_security_playbooks_by_topic tools to find relevant response procedures from our security playbooks."}
         ]
 
     async def add_user_message(self, message: str) -> str:
@@ -132,58 +150,54 @@ Use this context to provide informed analysis and recommendations."""
     async def _get_llm_response(self) -> str:
         """Get response from LLM using MCP client with full conversation context."""
         try:
-            # Use the full conversation history for context
+            # Build complete conversation context for the LLM
             conversation_messages = []
 
-            # Add system message with alert context
-            system_msg = None
+            # Always include the system message first (contains alert context)
             for msg in self.conversation_history:
                 if msg["role"] == "system":
-                    system_msg = msg
+                    conversation_messages.append({
+                        "role": "system",
+                        "content": msg["content"]
+                    })
                     break
 
-            if system_msg:
+            # Add all conversation history up to the current user message
+            # The current user message will be processed by the MCP client
+            for msg in self.conversation_history[1:]:  # Skip system message, already added
                 conversation_messages.append({
-                    "role": "system",
-                    "content": system_msg["content"]
+                    "role": msg["role"],
+                    "content": msg["content"]
                 })
 
-            # Add recent conversation history (last 10 messages for context)
-            recent_messages = self.conversation_history[-10:] if len(self.conversation_history) > 10 else self.conversation_history[1:]
-            conversation_messages.extend(recent_messages)
-
-            # Add current user message (should be the last one)
-            if conversation_messages and conversation_messages[-1]["role"] == "user":
-                pass  # Current message is already in the conversation
-            else:
-                # Add the latest user message
-                for msg in reversed(self.conversation_history):
-                    if msg["role"] == "user":
-                        conversation_messages.append(msg)
-                        break
-
-            # Add playbook context if available and relevant
+            # Add playbook context if available and relevant to current conversation
             playbook_context = ""
             if self.recommended_playbooks:
-                playbook_context = "\n\n**Relevant Security Playbooks (from current conversation context):**\n"
+                playbook_context = "\n\n**Available Security Playbooks (from conversation context):**\n"
                 for i, pb in enumerate(self.recommended_playbooks[:3], 1):  # Show top 3
                     playbook_context += f"{i}. {pb.get('playbook', 'Unknown')}\n"
                     playbook_context += f"   Relevance Score: {pb.get('relevance_score', 0):.3f}\n"
                     playbook_context += f"   Summary: {pb.get('snippet', 'No preview')[:200]}...\n\n"
 
-            # Create the full context for the LLM
+            # Add playbook context as an additional system message if available
             if playbook_context:
                 conversation_messages.append({
                     "role": "system",
-                    "content": f"Additional Context - Available Security Playbooks:\n{playbook_context}\nPlease use this context to provide informed recommendations."
+                    "content": f"Additional Context - Available Security Playbooks:\n{playbook_context}\nUse this context to provide informed recommendations based on the conversation history."
                 })
 
-            # Use MCP client to generate response with full context
-            # Format messages for the query
-            formatted_query = self._format_conversation_for_query(conversation_messages)
+            # Debug logging
+            logger.info(f"LLM Context - Messages: {len(conversation_messages)}")
+            for i, msg in enumerate(conversation_messages[-3:]):  # Show last 3 messages
+                logger.info(f"  Message {len(conversation_messages)-2+i}: {msg['role']} - {msg['content'][:100]}...")
 
+            # Format the entire conversation context into a single query
+            # Include system context, conversation history, and current user message
+            full_context = self._build_full_context_query(conversation_messages)
+
+            # Use MCP client to generate response with full context
             response = await self.mcp_client.process_query(
-                formatted_query,
+                full_context,
                 model="claude-3-7-sonnet-20250219",
                 max_tokens=2000,
                 temperature=0.3
@@ -220,13 +234,51 @@ Use this context to provide informed analysis and recommendations."""
             content = msg["content"]
 
             if role == "system":
-                formatted_parts.append(f"System: {content}")
+                formatted_parts.append(f"System Context: {content}")
             elif role == "user":
                 formatted_parts.append(f"Human: {content}")
             elif role == "assistant":
                 formatted_parts.append(f"Assistant: {content}")
 
         return "\n\n".join(formatted_parts)
+
+    def _build_full_context_query(self, conversation_messages: List[Dict[str, str]]) -> str:
+        """Build a complete query string with full conversation context."""
+        # Get the current user message (last user message in conversation)
+        current_user_msg = None
+        for msg in reversed(self.conversation_history):
+            if msg["role"] == "user":
+                current_user_msg = msg["content"]
+                break
+
+        if not current_user_msg:
+            current_user_msg = "Please provide analysis and recommendations for this security alert."
+
+        # Format the conversation context
+        context_parts = []
+
+        # Add system context
+        for msg in conversation_messages:
+            if msg["role"] == "system":
+                context_parts.append(f"SYSTEM CONTEXT:\n{msg['content']}")
+                break
+
+        # Add conversation history
+        conversation_text = []
+        for msg in conversation_messages:
+            if msg["role"] != "system":  # Skip system message, already added
+                if msg["role"] == "user":
+                    conversation_text.append(f"Human: {msg['content']}")
+                elif msg["role"] == "assistant":
+                    conversation_text.append(f"Assistant: {msg['content']}")
+
+        if conversation_text:
+            context_parts.append(f"CONVERSATION HISTORY:\n{chr(10).join(conversation_text)}")
+
+        # Add current query
+        context_parts.append(f"CURRENT QUERY: {current_user_msg}")
+
+        return "\n\n".join(context_parts)
 
     def get_session_summary(self) -> Dict[str, Any]:
         """Get summary of the chat session for reporting."""
@@ -324,13 +376,24 @@ class ChatSessionManager:
         self.sessions[session_id] = session
 
         logger.info(f"Created new chat session: {session_id}")
+        logger.info(f"Total active sessions: {len([s for s in self.sessions.values() if s.is_active])}")
         return session_id
 
     async def get_session(self, session_id: str) -> Optional[ChatSession]:
         """Get a chat session by ID."""
+        logger.info(f"Attempting to get session: {session_id}")
+        logger.info(f"Available session IDs: {list(self.sessions.keys())}")
+
         session = self.sessions.get(session_id)
-        if session and session.is_active:
-            return session
+        if session:
+            logger.info(f"Session found: {session_id}, active: {session.is_active}")
+            if session.is_active:
+                return session
+            else:
+                logger.warning(f"Session {session_id} is not active")
+        else:
+            logger.warning(f"Session {session_id} not found in sessions dict")
+
         return None
 
     async def send_message(self, session_id: str, message: str) -> Dict[str, Any]:
@@ -359,20 +422,25 @@ class ChatSessionManager:
 
     async def end_session(self, session_id: str) -> Dict[str, Any]:
         """End a chat session and return final report."""
+        logger.info(f"Attempting to end session: {session_id}")
+        logger.info(f"Available session IDs: {list(self.sessions.keys())}")
+
         session = self.sessions.get(session_id)
         if not session:
+            logger.error(f"Session {session_id} not found for ending")
             return {
                 "success": False,
                 "error": "Session not found"
             }
 
         try:
+            logger.info(f"Ending session {session_id}, current status: active={session.is_active}")
             report_data = session.end_session()
 
             # Remove from active sessions
             del self.sessions[session_id]
 
-            logger.info(f"Ended chat session: {session_id}")
+            logger.info(f"Successfully ended chat session: {session_id}")
 
             return {
                 "success": True,
