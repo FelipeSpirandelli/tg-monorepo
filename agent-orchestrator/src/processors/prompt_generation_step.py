@@ -114,6 +114,36 @@ class PromptGenerationStep(PipelineStep):
 
         return {"prompt": prompt, "prompt_context": prompt_context}
 
+    def _get_rule_to_text_prompt_template(self) -> str:
+        """Get the Rule-to-Text prompt template for the new format"""
+        return """
+I received a security alert that has been processed and analyzed. Here's the information:
+
+## Alert Summary:
+{summary}
+
+## Detailed Analysis:
+{report}
+
+## Extracted Indicators of Compromise (IoCs):
+{actual_iocs}
+
+{tools_instruction}
+
+Please analyze this security alert and provide:
+1. A comprehensive threat assessment
+2. Potential impact analysis
+3. Recommended immediate response actions
+4. Detailed investigation steps
+5. Long-term prevention and mitigation strategies
+
+Use the extracted IoCs to provide specific, actionable intelligence. Focus on the technical details
+and provide concrete recommendations that can be implemented by security teams.
+
+If you need additional threat intelligence or context, use the available tools to gather more information
+about the IoCs, MITRE techniques, or related threats.
+"""
+
     def _get_default_prompt_template(self) -> str:
         """Get the default prompt template"""
         return """
