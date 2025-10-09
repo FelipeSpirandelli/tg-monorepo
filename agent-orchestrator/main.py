@@ -60,7 +60,7 @@ async def process_alert_interactive_mode(alert_data: dict, alert_id: str) -> dic
         if not natural_language_summary:
             raise ValueError("No natural language summary generated from initial pipeline")
 
-        # Create a chat session for interactive analysis
+        # Create a chat session for interactive analysis with actual rule-to-text context
         if chat_session_manager is None:
             raise ValueError("Chat session manager not initialized")
 
@@ -159,6 +159,10 @@ async def complete_interactive_alert(request: Request):
 
         report = chat_result.get("report", {})
 
+        # Get the original alert context from the chat session
+        natural_language_summary = report.get("rule_to_text_summary", "")
+        analyst_ready_report = report.get("analyst_ready_report", {})
+
         # Complete the remaining pipeline steps
         # We need to reconstruct the alert data for the final steps
         # For now, we'll create a minimal alert data structure
@@ -183,6 +187,8 @@ async def complete_interactive_alert(request: Request):
         complete_result = {
             "alert_id": alert_id,
             "mode": "interactive_completed",
+            "rule_to_text_summary": natural_language_summary,
+            "analyst_ready_report": analyst_ready_report,
             "chat_session": report,
             "final_analysis": final_result,
             "summary": {
@@ -286,7 +292,15 @@ async def process_alert(request: Request):
         # Add chat interface URL to the response
         chat_url = f"http://localhost:8001/chat_interface.html?alert_id={elastic_data.alert.id}&session_id={initial_result['session_id']}"
         initial_result["chat_interface_url"] = chat_url
-        initial_result["instructions"] = f"Open this URL to analyze the alert interactively: {chat_url}"
+        initial_result["instructions"] = f"🔗 CHAT INTERFACE: {chat_url}\n\nOpen this URL in your browser to start the interactive chat session for this alert."
+
+        # Log the chat interface URL prominently
+        logger.info(f"🔗 CHAT INTERFACE URL: {chat_url}")
+        logger.info(f"📋 Alert ID: {elastic_data.alert.id}")
+        logger.info(f"🔑 Session ID: {initial_result['session_id']}")
+        print(f"\n🔗 CHAT INTERFACE: {chat_url}")
+        print(f"📋 Alert ID: {elastic_data.alert.id}")
+        print(f"🔑 Session ID: {initial_result['session_id']}\n")
 
         return AgentResponse(response=initial_result)
 
@@ -308,23 +322,58 @@ async def process_alert(request: Request):
 async def initialize_chat(request: Request):
     """Initialize a new chat session for SOC analyst interaction."""
     try:
-        alert_summary = "Security alert detected. Please analyze and provide response recommendations."
-        analyst_report = {
-            "executive_summary": "Initial alert analysis session started."
-        }
+        data = await request.json()
+        alert_id = data.get("alert_id")
+        session_id_param = data.get("session_id")
+
+        logger.info(f"Chat init request: alert_id={alert_id}, session_id={session_id_param}")
 
         if chat_session_manager is None:
             raise HTTPException(status_code=500, detail="Chat session manager not initialized")
 
+        # If session_id is provided, try to connect to existing session
+        if session_id_param:
+            logger.info(f"Attempting to connect to existing session: {session_id_param}")
+            existing_session = await chat_session_manager.get_session(session_id_param)
+
+            if existing_session:
+                logger.info(f"✅ Connected to existing session: {session_id_param}")
+                return {
+                    "success": True,
+                    "session_id": session_id_param,
+                    "alert_id": existing_session.alert_summary[:50] + "..." if existing_session.alert_summary else alert_id,
+                    "alert_summary": existing_session.alert_summary,
+                    "recommended_playbooks": existing_session.recommended_playbooks
+                }
+            else:
+                logger.warning(f"Session {session_id_param} not found, creating new session")
+                # Fall through to create new session
+
+        # Create a new session
+        logger.info("Creating new chat session")
+        if alert_id:
+            # For existing alerts, use a more generic summary since we don't have the actual rule-to-text
+            alert_summary = f"Security alert {alert_id} detected. Please analyze and provide response recommendations."
+        else:
+            alert_summary = "Security alert detected. Please analyze and provide response recommendations."
+
+        analyst_report = {
+            "executive_summary": "Initial alert analysis session started."
+        }
+
         session_id = await chat_session_manager.create_session(alert_summary, analyst_report)
 
+        # Get the session to extract initial data
         session = await chat_session_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=500, detail="Failed to retrieve created session")
 
+        logger.info(f"✅ Created new chat session: {session_id}")
+
         return {
             "success": True,
             "session_id": session_id,
+            "alert_id": alert_id or "new_session",
             "alert_summary": session.alert_summary,
             "recommended_playbooks": session.recommended_playbooks
         }

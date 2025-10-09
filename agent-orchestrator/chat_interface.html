@@ -342,33 +342,44 @@
                 const alertId = getUrlParameter('alert_id');
                 const sessionIdParam = getUrlParameter('session_id');
 
+                console.log('🔍 Initializing chat with params:', { alertId, sessionIdParam });
+
                 let initData = {};
 
                 if (alertId && sessionIdParam) {
                     // Connect to existing alert session
+                    console.log('🔗 Connecting to existing alert session:', { alertId, sessionIdParam });
                     initData = {
                         alert_id: alertId,
                         session_id: sessionIdParam
                     };
                 } else {
+                    console.log('🔄 No URL parameters found, trying to find existing sessions...');
                     // Try to get the latest active session
                     try {
                         const sessionsResponse = await fetch('/chat/sessions');
                         if (sessionsResponse.ok) {
                             const sessionsData = await sessionsResponse.json();
+                            console.log('📋 Active sessions:', sessionsData);
                             if (sessionsData.active_sessions && sessionsData.active_sessions.length > 0) {
                                 const latestSession = sessionsData.active_sessions[0];
                                 initData = {
                                     alert_id: latestSession.alert_id || 'unknown',
                                     session_id: latestSession.session_id
                                 };
-                                console.log('Connecting to latest active session:', initData);
+                                console.log('🔗 Connecting to latest active session:', initData);
+                            } else {
+                                console.log('📭 No active sessions found, will create new session');
                             }
+                        } else {
+                            console.log('❌ Failed to fetch active sessions');
                         }
                     } catch (e) {
-                        console.log('No active sessions found, creating new one');
+                        console.log('⚠️ Error fetching sessions, will create new session:', e.message);
                     }
                 }
+
+                console.log('🚀 Initializing chat with data:', initData);
 
                 const response = await fetch('/chat/init', {
                     method: 'POST',
@@ -383,21 +394,34 @@
                 }
 
                 const data = await response.json();
+                    console.log('📨 Chat init response:', data);
 
                 if (data.success) {
                     sessionId = data.session_id;
                     document.getElementById('session-id').textContent = sessionId;
+                    console.log('✅ Chat session initialized:', sessionId);
+                    console.log('📋 Alert ID from response:', data.alert_id);
+                    console.log('📝 Alert summary length:', data.alert_summary ? data.alert_summary.length : 'none');
 
                     // Load initial alert context if provided
                     if (data.alert_summary) {
-                        addMessage('assistant', `**Alert Analysis Session Started**
+                        console.log('📝 Loading alert summary:', data.alert_summary.substring(0, 100) + '...');
+                        addMessage('assistant', `**🚨 Security Alert Analysis**
 
-${data.alert_summary}`);
+**Rule-to-Text Summary:**
+${data.alert_summary}
+
+**Ready for interactive analysis!** Ask questions about this alert, request playbook recommendations, or discuss response strategies.`);
+                    } else {
+                        console.log('⚠️ No alert summary provided');
                     }
 
                     // Load recommended playbooks if provided
                     if (data.recommended_playbooks && data.recommended_playbooks.length > 0) {
+                        console.log('📚 Loading playbooks:', data.recommended_playbooks.length);
                         displayPlaybookRecommendations(data.recommended_playbooks);
+                    } else {
+                        console.log('⚠️ No recommended playbooks provided');
                     }
 
                     document.getElementById('connection-status').textContent = 'Connected';
@@ -411,11 +435,14 @@ ${data.alert_summary}`);
                     newUrl.searchParams.set('alert_id', data.alert_id || alertId || '');
                     newUrl.searchParams.set('session_id', sessionId);
                     window.history.replaceState({}, '', newUrl);
+
+                    console.log('🎉 Chat interface ready!');
                 } else {
+                    console.error('❌ Chat initialization failed:', data);
                     throw new Error(data.error || 'Failed to initialize chat');
                 }
             } catch (error) {
-                console.error('Error initializing chat:', error);
+                console.error('❌ Error initializing chat:', error);
                 document.querySelector('.loading').innerHTML = `
                     <p style="color: #f44336;">❌ Failed to initialize chat: ${error.message}</p>
                     <button onclick="initializeChat()" style="margin-top: 10px; padding: 8px 16px; background: #667eea; color: white; border: none; border-radius: 5px; cursor: pointer;">Retry</button>

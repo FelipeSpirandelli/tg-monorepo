@@ -21,8 +21,8 @@ class ChatSession:
 
     def __init__(self, session_id: str, alert_summary: str, analyst_report: dict, mcp_client: IntegratedMCPClient):
         self.session_id = session_id
-        self.alert_summary = alert_summary
-        self.analyst_report = analyst_report
+        self.alert_summary = alert_summary  # This is the rule-to-text summary
+        self.analyst_report = analyst_report  # This is the analyst ready report
         self.mcp_client = mcp_client
         self.created_at = datetime.now()
         self.last_activity = datetime.now()
@@ -45,27 +45,17 @@ Your role is to help SOC analysts understand and respond to security alerts by:
 
 Always use the playbook_rag tool when recommending response procedures to ensure accuracy and completeness.
 
-The conversation should continue until the analyst explicitly ends it."""
+The conversation should continue until the analyst explicitly ends it.
 
-        initial_user_message = f"""I need your help analyzing this security alert:
+**Alert Context:**
+- Rule-to-Text Summary: {self.alert_summary}
+- Analyst Report: {self.analyst_report.get('executive_summary', 'No executive summary available')}
 
-**Alert Summary:**
-{self.alert_summary}
-
-**Analyst Report:**
-{self.analyst_report.get('executive_summary', 'No executive summary available')}
-
-Please provide:
-1. A clear explanation of what this alert means
-2. Recommended response procedures from relevant playbooks
-3. Any immediate actions that should be taken
-4. Additional investigation steps if needed
-
-Use the available tools to search for relevant security playbooks."""
+Use this context to provide informed analysis and recommendations."""
 
         self.conversation_history = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": initial_user_message}
+            {"role": "user", "content": "I need your help analyzing this security alert. Please provide analysis and recommendations based on the rule-to-text summary and analyst report provided in your system context."}
         ]
 
     async def add_user_message(self, message: str) -> str:
@@ -140,25 +130,60 @@ Use the available tools to search for relevant security playbooks."""
         return key_terms[:3]  # Limit to top 3 terms
 
     async def _get_llm_response(self) -> str:
-        """Get response from LLM using MCP client."""
+        """Get response from LLM using MCP client with full conversation context."""
         try:
-            # Create enhanced prompt with current conversation context
-            conversation_text = self._format_conversation_for_llm()
+            # Use the full conversation history for context
+            conversation_messages = []
 
-            # Add playbook context if available
+            # Add system message with alert context
+            system_msg = None
+            for msg in self.conversation_history:
+                if msg["role"] == "system":
+                    system_msg = msg
+                    break
+
+            if system_msg:
+                conversation_messages.append({
+                    "role": "system",
+                    "content": system_msg["content"]
+                })
+
+            # Add recent conversation history (last 10 messages for context)
+            recent_messages = self.conversation_history[-10:] if len(self.conversation_history) > 10 else self.conversation_history[1:]
+            conversation_messages.extend(recent_messages)
+
+            # Add current user message (should be the last one)
+            if conversation_messages and conversation_messages[-1]["role"] == "user":
+                pass  # Current message is already in the conversation
+            else:
+                # Add the latest user message
+                for msg in reversed(self.conversation_history):
+                    if msg["role"] == "user":
+                        conversation_messages.append(msg)
+                        break
+
+            # Add playbook context if available and relevant
             playbook_context = ""
             if self.recommended_playbooks:
-                playbook_context = "\n\n**Relevant Playbooks Found:**\n"
+                playbook_context = "\n\n**Relevant Security Playbooks (from current conversation context):**\n"
                 for i, pb in enumerate(self.recommended_playbooks[:3], 1):  # Show top 3
                     playbook_context += f"{i}. {pb.get('playbook', 'Unknown')}\n"
-                    playbook_context += f"   Relevance: {pb.get('relevance_score', 0):.3f}\n"
-                    playbook_context += f"   Preview: {pb.get('snippet', 'No preview')[:200]}...\n\n"
+                    playbook_context += f"   Relevance Score: {pb.get('relevance_score', 0):.3f}\n"
+                    playbook_context += f"   Summary: {pb.get('snippet', 'No preview')[:200]}...\n\n"
 
-            full_prompt = f"{conversation_text}\n\n{playbook_context}\n\nProvide a comprehensive response based on the conversation context."
+            # Create the full context for the LLM
+            if playbook_context:
+                conversation_messages.append({
+                    "role": "system",
+                    "content": f"Additional Context - Available Security Playbooks:\n{playbook_context}\nPlease use this context to provide informed recommendations."
+                })
 
-            # Use MCP client to generate response
+            # Use MCP client to generate response with full context
+            # Format messages for the query
+            formatted_query = self._format_conversation_for_query(conversation_messages)
+
             response = await self.mcp_client.process_query(
-                full_prompt,
+                formatted_query,
                 model="claude-3-7-sonnet-20250219",
                 max_tokens=2000,
                 temperature=0.3
@@ -186,6 +211,23 @@ Use the available tools to search for relevant security playbooks."""
 
         return "\n\n".join(formatted_messages)
 
+    def _format_conversation_for_query(self, conversation_messages: List[Dict[str, str]]) -> str:
+        """Format conversation messages for MCP client query."""
+        formatted_parts = []
+
+        for msg in conversation_messages:
+            role = msg["role"]
+            content = msg["content"]
+
+            if role == "system":
+                formatted_parts.append(f"System: {content}")
+            elif role == "user":
+                formatted_parts.append(f"Human: {content}")
+            elif role == "assistant":
+                formatted_parts.append(f"Assistant: {content}")
+
+        return "\n\n".join(formatted_parts)
+
     def get_session_summary(self) -> Dict[str, Any]:
         """Get summary of the chat session for reporting."""
         return {
@@ -210,6 +252,8 @@ Use the available tools to search for relevant security playbooks."""
             "conversation_history": self.conversation_history,
             "recommended_playbooks": self.recommended_playbooks,
             "final_recommendations": final_recommendations,
+            "rule_to_text_summary": self.alert_summary,
+            "analyst_ready_report": self.analyst_report,
             "summary": self.get_session_summary()
         }
 
