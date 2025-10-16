@@ -122,12 +122,19 @@ def search_playbooks(
 
     except Exception as e:
         logger.error(f"Error searching playbooks: {str(e)}")
+        error_message = str(e)
+        
+        # Provide helpful error message if Qdrant is not available
+        if "Connection" in error_message or "refused" in error_message or "Timeout" in error_message:
+            error_message = "Playbook RAG system (Qdrant) is not available. Please ensure Qdrant is running at the configured URL, or provide a general security response based on standard best practices."
+        
         return {
             "success": False,
-            "error": str(e),
+            "error": error_message,
             "query": query,
             "total_results": 0,
             "results": [],
+            "fallback_suggestion": "Consider providing response based on standard security incident response procedures and MITRE ATT&CK framework guidelines."
         }
 
 
@@ -181,7 +188,19 @@ def get_available_playbooks() -> dict[str, Any]:
 
     except Exception as e:
         logger.error(f"Error retrieving available playbooks: {str(e)}")
-        return {"success": False, "error": str(e), "total_playbooks": 0, "playbooks": []}
+        error_message = str(e)
+        
+        # Provide helpful error message if Qdrant is not available
+        if "Connection" in error_message or "refused" in error_message or "Timeout" in error_message:
+            error_message = "Playbook RAG system (Qdrant) is not available. Cannot retrieve playbook list."
+        
+        return {
+            "success": False, 
+            "error": error_message, 
+            "total_playbooks": 0, 
+            "playbooks": [],
+            "fallback_suggestion": "Playbook database is unavailable. Provide general security guidance based on industry best practices."
+        }
 
 
 def search_playbook_by_topic(topic: str, top_k: int = 3) -> dict[str, Any]:

@@ -75,7 +75,8 @@ async def process_alert_interactive_mode(alert_data: dict, alert_id: str) -> dic
         logger.info(f"Creating chat session with alert summary length: {len(natural_language_summary)}")
         logger.info(f"Chat manager instance ID before create: {id(chat_session_manager)}")
         
-        session_id = await chat_session_manager.create_session(natural_language_summary, analyst_ready_report)
+        # Pass the full initial_result to the session for later use in completion
+        session_id = await chat_session_manager.create_session(natural_language_summary, analyst_ready_report, initial_result, alert_id)
 
         # Get the session to extract data for the response
         session = await chat_session_manager.get_session(session_id)
@@ -168,6 +169,14 @@ async def complete_interactive_alert(request: Request):
         if chat_session_manager is None:
             raise HTTPException(status_code=500, detail="Chat session manager not initialized")
 
+        # Get the session BEFORE ending it to access initial pipeline data
+        session = await chat_session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        # Get the initial pipeline data stored in the session
+        initial_pipeline_data = session.initial_pipeline_data
+        
         # End the chat session and get the report
         chat_result = await chat_session_manager.end_session(session_id)
 
@@ -187,8 +196,9 @@ async def complete_interactive_alert(request: Request):
         logger.info(f"Retrieved chat report - Summary length: {len(natural_language_summary)}, Recommendations: {len(final_recommendations)}")
 
         # Create pipeline data with all the context from the chat session
-        # This includes the original alert context plus the chat insights
+        # This includes the original alert context plus the chat insights AND the initial pipeline data
         pipeline_data = {
+            **initial_pipeline_data,  # Include all data from initial pipeline (includes processed_alert, etc.)
             "natural_language_summary": natural_language_summary,
             "analyst_ready_report": analyst_ready_report,
             "conversation_history": conversation_history,
@@ -218,6 +228,9 @@ async def complete_interactive_alert(request: Request):
             "analyst_ready_report": analyst_ready_report,
             "chat_session": report,
             "final_analysis": final_result,
+            "pdf_report": chat_result.get("pdf_report"),
+            "pdf_filename": chat_result.get("pdf_filename"),
+            "pdf_download_url": f"http://localhost:8001/chat/report/{chat_result.get('pdf_filename')}" if chat_result.get("pdf_filename") else None,
             "summary": {
                 "alert_id": alert_id,
                 "chat_messages": len(report.get("conversation_history", [])),
@@ -229,6 +242,10 @@ async def complete_interactive_alert(request: Request):
 
         # Save complete results to file
         await save_complete_results_to_file(complete_result, alert_id)
+        
+        # Log the PDF download link
+        if complete_result.get("pdf_download_url"):
+            logger.info(f"📄 Chat Session PDF Report: {complete_result['pdf_download_url']}")
 
         return AgentResponse(response=complete_result)
 
@@ -480,6 +497,37 @@ async def get_active_sessions():
     except Exception as e:
         logger.error(f"Error getting active sessions: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error getting sessions: {str(e)}") from e
+
+
+@app.get("/chat/report/{filename}")
+async def download_chat_report(filename: str):
+    """Download a PDF report from a completed chat session."""
+    try:
+        # Validate filename to prevent directory traversal
+        if ".." in filename or "/" in filename or "\\" in filename:
+            raise HTTPException(status_code=400, detail="Invalid filename")
+        
+        # Check if file exists
+        report_path = os.path.join("chat_reports", filename)
+        if not os.path.exists(report_path):
+            raise HTTPException(status_code=404, detail="Report not found")
+        
+        logger.info(f"Serving PDF report: {filename}")
+        
+        return FileResponse(
+            path=report_path,
+            media_type="application/pdf",
+            filename=filename,
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}"
+            }
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error serving PDF report: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error serving report: {str(e)}") from e
 
 
 if __name__ == "__main__":

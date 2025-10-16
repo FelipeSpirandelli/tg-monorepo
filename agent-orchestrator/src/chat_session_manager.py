@@ -8,8 +8,22 @@ Handles session creation, state persistence, and conversation flow.
 import asyncio
 import json
 import uuid
+import os
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
+
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import inch
+from reportlab.platypus import (
+    PageBreak,
+    Paragraph,
+    SimpleDocTemplate,
+    Spacer,
+    Table,
+    TableStyle,
+)
 
 from src.logger import logger
 from src.mcp_client import IntegratedMCPClient
@@ -19,11 +33,13 @@ from src.tools.playbook_rag import search_playbooks
 class ChatSession:
     """Represents a single chat session between SOC analyst and LLM agent."""
 
-    def __init__(self, session_id: str, alert_summary: str, analyst_report: dict, mcp_client: IntegratedMCPClient):
+    def __init__(self, session_id: str, alert_summary: str, analyst_report: dict, mcp_client: IntegratedMCPClient, initial_pipeline_data: dict = None, alert_id: str = None):
         self.session_id = session_id
+        self.alert_id = alert_id or "unknown"  # Store the alert ID for reporting
         self.alert_summary = alert_summary  # This is the rule-to-text summary
         self.analyst_report = analyst_report  # This is the analyst ready report
         self.mcp_client = mcp_client
+        self.initial_pipeline_data = initial_pipeline_data or {}  # Store full pipeline data for completion
         self.created_at = datetime.now()
         self.last_activity = datetime.now()
         self.is_active = True
@@ -284,6 +300,7 @@ Use this context to provide informed analysis and recommendations."""
         """Get summary of the chat session for reporting."""
         return {
             "session_id": self.session_id,
+            "alert_id": self.alert_id,
             "created_at": self.created_at.isoformat(),
             "last_activity": self.last_activity.isoformat(),
             "is_active": self.is_active,
@@ -368,14 +385,14 @@ class ChatSessionManager:
             except Exception as e:
                 logger.error(f"Error in session cleanup: {str(e)}")
 
-    async def create_session(self, alert_summary: str, analyst_report: dict) -> str:
+    async def create_session(self, alert_summary: str, analyst_report: dict, initial_pipeline_data: dict = None, alert_id: str = None) -> str:
         """Create a new chat session."""
         session_id = str(uuid.uuid4())
 
-        session = ChatSession(session_id, alert_summary, analyst_report, self.mcp_client)
+        session = ChatSession(session_id, alert_summary, analyst_report, self.mcp_client, initial_pipeline_data, alert_id)
         self.sessions[session_id] = session
 
-        logger.info(f"Created new chat session: {session_id}")
+        logger.info(f"Created new chat session: {session_id} for alert: {alert_id}")
         logger.info(f"Total active sessions: {len([s for s in self.sessions.values() if s.is_active])}")
         return session_id
 
@@ -420,8 +437,152 @@ class ChatSessionManager:
                 "error": str(e)
             }
 
+    def _generate_pdf_report(self, session_id: str, report_data: Dict[str, Any]) -> str:
+        """Generate a PDF summary report for the chat session.
+        
+        Args:
+            session_id: The session ID
+            report_data: The report data from session.end_session()
+            
+        Returns:
+            Path to the generated PDF file
+        """
+        # Create output directory if it doesn't exist
+        output_dir = "chat_reports"
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Generate filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        alert_id = report_data.get("summary", {}).get("alert_id", "unknown")
+        filename = f"chat_report_{alert_id}_{timestamp}.pdf"
+        filepath = os.path.join(output_dir, filename)
+        
+        # Create PDF
+        doc = SimpleDocTemplate(filepath, pagesize=letter)
+        styles = getSampleStyleSheet()
+        story = []
+        
+        # Custom styles
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=24,
+            textColor=colors.HexColor('#1a1a1a'),
+            spaceAfter=30,
+            alignment=1  # Center
+        )
+        
+        heading_style = ParagraphStyle(
+            'CustomHeading',
+            parent=styles['Heading2'],
+            fontSize=16,
+            textColor=colors.HexColor('#2c3e50'),
+            spaceAfter=12,
+            spaceBefore=12
+        )
+        
+        # Title
+        story.append(Paragraph("Security Alert Analysis Report", title_style))
+        story.append(Spacer(1, 0.3*inch))
+        
+        # Session Info Table
+        summary = report_data.get("summary", {})
+        session_info = [
+            ["Session ID:", session_id[:16] + "..."],
+            ["Alert ID:", summary.get("alert_id", "N/A")],
+            ["Created:", summary.get("created_at", "N/A")],
+            ["Messages:", str(summary.get("message_count", 0))],
+            ["Playbooks Used:", str(summary.get("playbook_count", 0))]
+        ]
+        
+        info_table = Table(session_info, colWidths=[2*inch, 4*inch])
+        info_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#ecf0f1')),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+            ('PADDING', (0, 0), (-1, -1), 8),
+        ]))
+        story.append(info_table)
+        story.append(Spacer(1, 0.3*inch))
+        
+        # Rule to Text Summary
+        story.append(Paragraph("Alert Summary", heading_style))
+        alert_summary = report_data.get("rule_to_text_summary", "No summary available")
+        # Split into paragraphs for better formatting
+        for para in alert_summary.split('\n\n'):
+            if para.strip():
+                story.append(Paragraph(para.replace('\n', '<br/>'), styles['Normal']))
+                story.append(Spacer(1, 0.1*inch))
+        story.append(Spacer(1, 0.2*inch))
+        
+        # Final Recommendations
+        recommendations = report_data.get("final_recommendations", [])
+        if recommendations:
+            story.append(Paragraph("Key Recommendations", heading_style))
+            for i, rec in enumerate(recommendations, 1):
+                story.append(Paragraph(f"{i}. {rec}", styles['Normal']))
+                story.append(Spacer(1, 0.1*inch))
+            story.append(Spacer(1, 0.2*inch))
+        
+        # Recommended Playbooks
+        playbooks = report_data.get("recommended_playbooks", [])
+        if playbooks:
+            story.append(Paragraph("Recommended Playbooks", heading_style))
+            for playbook in playbooks:
+                story.append(Paragraph(f"• {playbook}", styles['Normal']))
+                story.append(Spacer(1, 0.05*inch))
+            story.append(Spacer(1, 0.2*inch))
+        
+        # Conversation Highlights (last 5 messages)
+        story.append(PageBreak())
+        story.append(Paragraph("Conversation Highlights", heading_style))
+        conversation = report_data.get("conversation_history", [])
+        
+        # Show last 5 exchanges (skip system message)
+        messages_to_show = [m for m in conversation if m["role"] != "system"][-10:]
+        
+        for msg in messages_to_show:
+            role = msg["role"].capitalize()
+            content = msg["content"][:500] + ("..." if len(msg["content"]) > 500 else "")
+            
+            role_style = ParagraphStyle(
+                'Role',
+                parent=styles['Normal'],
+                fontName='Helvetica-Bold',
+                textColor=colors.HexColor('#2980b9') if role == "User" else colors.HexColor('#27ae60'),
+                fontSize=11
+            )
+            
+            story.append(Paragraph(f"{role}:", role_style))
+            story.append(Paragraph(content.replace('\n', '<br/>'), styles['Normal']))
+            story.append(Spacer(1, 0.15*inch))
+        
+        # Footer
+        story.append(Spacer(1, 0.5*inch))
+        footer_style = ParagraphStyle(
+            'Footer',
+            parent=styles['Normal'],
+            fontSize=8,
+            textColor=colors.grey,
+            alignment=1
+        )
+        story.append(Paragraph(
+            f"Generated by TG-Agent Cybersecurity LLM System on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            footer_style
+        ))
+        
+        # Build PDF
+        doc.build(story)
+        logger.info(f"Generated PDF report: {filepath}")
+        logger.info(f"📄 PDF Download URL: http://localhost:8001/chat/report/{filename}")
+        
+        return filepath
+
     async def end_session(self, session_id: str) -> Dict[str, Any]:
-        """End a chat session and return final report."""
+        """End a chat session and return final report with PDF."""
         logger.info(f"Attempting to end session: {session_id}")
         logger.info(f"Available session IDs: {list(self.sessions.keys())}")
 
@@ -436,6 +597,9 @@ class ChatSessionManager:
         try:
             logger.info(f"Ending session {session_id}, current status: active={session.is_active}")
             report_data = session.end_session()
+            
+            # Generate PDF report
+            pdf_path = self._generate_pdf_report(session_id, report_data)
 
             # Remove from active sessions
             del self.sessions[session_id]
@@ -445,7 +609,9 @@ class ChatSessionManager:
             return {
                 "success": True,
                 "report": report_data,
-                "recommendations_count": len(report_data["final_recommendations"])
+                "recommendations_count": len(report_data["final_recommendations"]),
+                "pdf_report": pdf_path,
+                "pdf_filename": os.path.basename(pdf_path)
             }
         except Exception as e:
             logger.error(f"Error ending session {session_id}: {str(e)}")

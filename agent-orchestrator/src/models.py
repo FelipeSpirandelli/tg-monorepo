@@ -77,13 +77,13 @@ class ElasticRule(BaseModel):
 class ElasticAlertData(BaseModel):
     """Complete alert data from Elastic including metadata and extracted form data"""
 
-    timestamp: str = Field(..., description="Alert timestamp")
-    method: str = Field(..., description="HTTP method")
-    headers: dict[str, str] = Field(..., description="HTTP headers")
-    url: str = Field(..., description="Request URL")
-    remote_addr: str = Field(..., description="Remote address")
-    user_agent: str = Field(..., description="User agent")
-    form_data: dict[str, list[str]] = Field(..., description="Raw form data")
+    timestamp: str | None = Field(default=None, description="Alert timestamp")
+    method: str | None = Field(default=None, description="HTTP method")
+    headers: dict[str, str] | None = Field(default=None, description="HTTP headers")
+    url: str | None = Field(default=None, description="Request URL")
+    remote_addr: str | None = Field(default=None, description="Remote address")
+    user_agent: str | None = Field(default=None, description="User agent")
+    form_data: dict[str, list[str]] | None = Field(default=None, description="Raw form data")
 
     # Parsed form data
     alert: ElasticAlert | None = Field(default=None, description="Parsed alert data")

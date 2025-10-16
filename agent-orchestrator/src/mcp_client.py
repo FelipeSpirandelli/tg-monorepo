@@ -185,9 +185,9 @@ class IntegratedMCPClient:
 
         # Process response and handle tool calls
         final_text = []
-        max_iterations = 5  # Prevent infinite loops
+        max_iterations = 10  # Increased to allow more tool usage, but still prevent infinite loops
 
-        for _ in range(max_iterations):
+        for iteration in range(max_iterations):
             assistant_message_content = []
             tool_calls_found = False
 
@@ -233,6 +233,11 @@ class IntegratedMCPClient:
                 messages=messages,
                 tools=self.available_tools,
             )
+        
+        # If we hit max iterations, add a warning
+        if iteration >= max_iterations - 1 and tool_calls_found:
+            logger.warning(f"Hit max iterations ({max_iterations}) with pending tool calls - some analysis may be incomplete")
+            final_text.append("\n\n[Note: Analysis was truncated due to complexity. Some tool results may not have been fully processed.]")
 
         return "\n".join(final_text)
 

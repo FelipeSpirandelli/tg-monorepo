@@ -417,12 +417,12 @@ ${data.alert_summary}
                     }
 
                     // Load recommended playbooks if provided
-                    if (data.recommended_playbooks && data.recommended_playbooks.length > 0) {
+                    /*if (data.recommended_playbooks && data.recommended_playbooks.length > 0) {
                         console.log('📚 Loading playbooks:', data.recommended_playbooks.length);
                         displayPlaybookRecommendations(data.recommended_playbooks);
                     } else {
                         console.log('⚠️ No recommended playbooks provided');
-                    }
+                    }*/
 
                     // Load existing conversation history if available
                     if (data.existing_conversation && data.existing_conversation.length > 0) {
@@ -482,7 +482,7 @@ ${data.alert_summary}
                 .replace(/`(.*?)`/g, '<code>$1</code>')
                 .replace(/\n/g, '<br>');
         }
-
+        /*
         function displayPlaybookRecommendations(playbooks) {
             const chatArea = document.getElementById('chat-area');
 
@@ -523,7 +523,7 @@ ${data.alert_summary}
             });
 
             chatArea.appendChild(containerDiv);
-        }
+        }*/
 
         async function sendMessage() {
             const input = document.getElementById('message-input');
@@ -561,9 +561,9 @@ ${data.alert_summary}
                     addMessage('assistant', data.response);
 
                     // Update playbook recommendations if provided
-                    if (data.recommended_playbooks && data.recommended_playbooks.length > 0) {
+                    /*if (data.recommended_playbooks && data.recommended_playbooks.length > 0) {
                         displayPlaybookRecommendations(data.recommended_playbooks);
-                    }
+                    }*/
                 } else {
                     throw new Error(data.error || 'Failed to send message');
                 }
