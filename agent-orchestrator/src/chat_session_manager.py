@@ -33,11 +33,12 @@ from src.tools.playbook_rag import search_playbooks
 class ChatSession:
     """Represents a single chat session between SOC analyst and LLM agent."""
 
-    def __init__(self, session_id: str, alert_summary: str, analyst_report: dict, mcp_client: IntegratedMCPClient, initial_pipeline_data: dict = None, alert_id: str = None):
+    def __init__(self, session_id: str, alert_summary: str, analyst_report: dict, mcp_client: IntegratedMCPClient, initial_pipeline_data: dict = None, alert_id: str = None, alert_data: dict = None):
         self.session_id = session_id
         self.alert_id = alert_id or "unknown"  # Store the alert ID for reporting
         self.alert_summary = alert_summary  # This is the rule-to-text summary
         self.analyst_report = analyst_report  # This is the analyst ready report
+        self.alert_data = alert_data or {}  # Store full alert data for context (not displayed in chat)
         self.mcp_client = mcp_client
         self.initial_pipeline_data = initial_pipeline_data or {}  # Store full pipeline data for completion
         self.created_at = datetime.now()
@@ -58,6 +59,10 @@ class ChatSession:
         """Initialize the conversation with system prompt and initial user message."""
         # Properly format the system prompt with actual alert context
         executive_summary = self.analyst_report.get('executive_summary', 'No executive summary available') if self.analyst_report else 'No analyst report available'
+        
+        # Format alert data as JSON for LLM context (not displayed in chat)
+        import json
+        alert_data_json = json.dumps(self.alert_data, indent=2) if self.alert_data else "No raw alert data available"
 
         system_prompt = f"""You are an expert SOC analyst assistant with access to security playbooks and threat intelligence tools.
 
@@ -76,11 +81,20 @@ Do not make up procedures - always search the playbook database using the tools.
 
 The conversation should continue until the analyst explicitly ends it.
 
-**Alert Context:**
-- Rule-to-Text Summary: {self.alert_summary}
-- Analyst Report: {executive_summary}
+**Alert Context (for your reference - you can cite specific fields when relevant):**
 
-Use this context to provide informed analysis and recommendations."""
+1. Rule-to-Text Summary (Human-readable):
+{self.alert_summary}
+
+2. Analyst Report (Executive Summary):
+{executive_summary}
+
+3. Raw Alert Data (Full technical details - reference these when analyst asks for specifics):
+```json
+{alert_data_json}
+```
+
+When the analyst asks about specific alert fields, query parameters, MITRE techniques, or technical details, reference the raw alert data above. The Rule-to-Text Summary is the primary context, but use the raw data for detailed questions."""
 
         logger.info(f"System prompt created - Length: {len(system_prompt)}")
         logger.info(f"System prompt preview: {system_prompt[:200]}...")
@@ -309,18 +323,66 @@ Use this context to provide informed analysis and recommendations."""
             "alert_summary": self.alert_summary[:200] + "..." if len(self.alert_summary) > 200 else self.alert_summary
         }
 
-    def end_session(self) -> Dict[str, Any]:
+    async def _generate_playbook_recommendation(self) -> str:
+        """Generate LLM-based playbook recommendation based on the conversation context."""
+        try:
+            # Build a summary of the conversation for context
+            conversation_summary = []
+            for msg in self.conversation_history[-10:]:  # Last 10 messages
+                if msg["role"] != "system":
+                    role = "Analyst" if msg["role"] == "user" else "Assistant"
+                    content = msg["content"][:200] + ("..." if len(msg["content"]) > 200 else "")
+                    conversation_summary.append(f"{role}: {content}")
+            
+            conversation_context = "\n".join(conversation_summary)
+            
+            # Create prompt for playbook recommendation
+            recommendation_prompt = f"""Based on the following security alert analysis conversation, provide a concise recommendation (2-3 paragraphs) on which security playbooks or response procedures should be followed.
+
+**Alert Summary:**
+{self.alert_summary[:500]}
+
+**Conversation Context:**
+{conversation_context}
+
+Provide specific playbook recommendations that:
+1. Match the type of security incident discussed
+2. Reference specific playbooks if they were mentioned in the conversation
+3. Include the main response steps that should be followed
+4. Are actionable for a SOC analyst
+
+Keep it concise and focused on actionable playbook guidance."""
+
+            # Generate recommendation using MCP client
+            recommendation = await self.mcp_client.process_query(
+                recommendation_prompt,
+                model="claude-3-5-haiku-20241022",
+                max_tokens=500,
+                temperature=0.3
+            )
+            
+            return recommendation.strip()
+        
+        except Exception as e:
+            logger.error(f"Error generating playbook recommendation: {str(e)}")
+            return "Unable to generate playbook recommendation at this time."
+
+    async def end_session(self) -> Dict[str, Any]:
         """End the chat session and return final report data."""
         self.is_active = False
 
         # Extract final recommendations from conversation
         final_recommendations = self._extract_final_recommendations()
+        
+        # Generate playbook recommendation based on conversation
+        playbook_recommendation = await self._generate_playbook_recommendation()
 
         return {
             "session_id": self.session_id,
             "conversation_history": self.conversation_history,
             "recommended_playbooks": self.recommended_playbooks,
             "final_recommendations": final_recommendations,
+            "playbook_recommendation": playbook_recommendation,
             "rule_to_text_summary": self.alert_summary,
             "analyst_ready_report": self.analyst_report,
             "summary": self.get_session_summary()
@@ -385,11 +447,11 @@ class ChatSessionManager:
             except Exception as e:
                 logger.error(f"Error in session cleanup: {str(e)}")
 
-    async def create_session(self, alert_summary: str, analyst_report: dict, initial_pipeline_data: dict = None, alert_id: str = None) -> str:
+    async def create_session(self, alert_summary: str, analyst_report: dict, initial_pipeline_data: dict = None, alert_id: str = None, alert_data: dict = None) -> str:
         """Create a new chat session."""
         session_id = str(uuid.uuid4())
 
-        session = ChatSession(session_id, alert_summary, analyst_report, self.mcp_client, initial_pipeline_data, alert_id)
+        session = ChatSession(session_id, alert_summary, analyst_report, self.mcp_client, initial_pipeline_data, alert_id, alert_data)
         self.sessions[session_id] = session
 
         logger.info(f"Created new chat session: {session_id} for alert: {alert_id}")
@@ -527,13 +589,15 @@ class ChatSessionManager:
                 story.append(Spacer(1, 0.1*inch))
             story.append(Spacer(1, 0.2*inch))
         
-        # Recommended Playbooks
-        playbooks = report_data.get("recommended_playbooks", [])
-        if playbooks:
-            story.append(Paragraph("Recommended Playbooks", heading_style))
-            for playbook in playbooks:
-                story.append(Paragraph(f"• {playbook}", styles['Normal']))
-                story.append(Spacer(1, 0.05*inch))
+        # Playbook Recommendations (LLM-generated based on conversation)
+        playbook_recommendation = report_data.get("playbook_recommendation", "")
+        if playbook_recommendation:
+            story.append(Paragraph("Recommended Response Playbooks", heading_style))
+            # Split into paragraphs for better formatting
+            for para in playbook_recommendation.split('\n\n'):
+                if para.strip():
+                    story.append(Paragraph(para.replace('\n', '<br/>'), styles['Normal']))
+                    story.append(Spacer(1, 0.1*inch))
             story.append(Spacer(1, 0.2*inch))
         
         # Conversation Highlights (last 5 messages)
@@ -596,7 +660,7 @@ class ChatSessionManager:
 
         try:
             logger.info(f"Ending session {session_id}, current status: active={session.is_active}")
-            report_data = session.end_session()
+            report_data = await session.end_session()
             
             # Generate PDF report
             pdf_path = self._generate_pdf_report(session_id, report_data)

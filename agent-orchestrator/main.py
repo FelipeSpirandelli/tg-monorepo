@@ -75,8 +75,14 @@ async def process_alert_interactive_mode(alert_data: dict, alert_id: str) -> dic
         logger.info(f"Creating chat session with alert summary length: {len(natural_language_summary)}")
         logger.info(f"Chat manager instance ID before create: {id(chat_session_manager)}")
         
-        # Pass the full initial_result to the session for later use in completion
-        session_id = await chat_session_manager.create_session(natural_language_summary, analyst_ready_report, initial_result, alert_id)
+        # Pass the full initial_result and alert_data to the session for later use in completion
+        session_id = await chat_session_manager.create_session(
+            alert_summary=natural_language_summary, 
+            analyst_report=analyst_ready_report, 
+            initial_pipeline_data=initial_result, 
+            alert_id=alert_id,
+            alert_data=alert_data  # Pass the raw alert data for LLM context
+        )
 
         # Get the session to extract data for the response
         session = await chat_session_manager.get_session(session_id)
