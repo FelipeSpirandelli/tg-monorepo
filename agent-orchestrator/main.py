@@ -73,7 +73,7 @@ async def process_alert_interactive_mode(alert_data: dict, alert_id: str) -> dic
 
         # Pass the full initial_result to the session for later use in completion
         session_id = await chat_session_manager.create_session(
-            natural_language_summary, analyst_ready_report, initial_result, alert_id
+            natural_language_summary, analyst_ready_report, initial_result, alert_id, alert_data
         )
 
         # Get the session to extract data for the response

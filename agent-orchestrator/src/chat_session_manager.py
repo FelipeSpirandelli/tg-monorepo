@@ -39,7 +39,8 @@ class ChatSession:
         analyst_report: dict,
         mcp_client: IntegratedMCPClient,
         initial_pipeline_data: dict = None,
-        alert_id: str = None, alert_data: dict = None,
+        alert_id: str = None,
+        alert_data: dict = None,
     ):
         self.session_id = session_id
         self.alert_id = alert_id or "unknown"  # Store the alert ID for reporting
@@ -491,8 +492,8 @@ class ChatSessionManager:
         session_id = str(uuid.uuid4())
 
         session = ChatSession(
-            session_id, alert_summary, analyst_report, self.mcp_client, initial_pipeline_data, alert_id
-        , alert_data)
+            session_id, alert_summary, analyst_report, self.mcp_client, initial_pipeline_data, alert_id, alert_data
+        )
         self.sessions[session_id] = session
 
         logger.info(f"Created new chat session: {session_id} for alert: {alert_id}")
