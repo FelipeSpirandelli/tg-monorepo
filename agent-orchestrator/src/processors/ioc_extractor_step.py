@@ -388,9 +388,7 @@ If a token is suspicious but syntactically invalid, include it in "ambiguous_tok
         searchable_text = self._flatten_alert_to_text(alert_data)
 
         # IP address pattern (IPv4)
-        ip_pattern = (
-            r"\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b"
-        )
+        ip_pattern = r"\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b"
         ip_matches = re.findall(ip_pattern, searchable_text)
         iocs["ip_addresses"].extend(list(set(ip_matches)))
 
@@ -398,7 +396,9 @@ If a token is suspicious but syntactically invalid, include it in "ambiguous_tok
         domain_pattern = r"\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}\b"
         domain_matches = re.findall(domain_pattern, searchable_text)
         # Filter out common false positives
-        filtered_domains = [d for d in domain_matches if not d.endswith((".exe", ".dll", ".sys", ".log"))]
+        filtered_domains = [
+            d for d in domain_matches if not d.endswith((".exe", ".dll", ".sys", ".log"))
+        ]
         iocs["domains"].extend(list(set(filtered_domains)))
 
         # Hash patterns (MD5, SHA1, SHA256)
