@@ -108,17 +108,17 @@ class IntegratedMCPClient:
                     "properties": {
                         "query": {
                             "type": "string",
-                            "description": "Natural language query to search for relevant playbook content (e.g., 'SSH brute force response procedures', 'how to handle malware incident')"
+                            "description": "Natural language query to search for relevant playbook content (e.g., 'SSH brute force response procedures', 'how to handle malware incident')",
                         },
                         "top_k": {
                             "type": "integer",
                             "description": "Maximum number of results to return",
-                            "default": 5
+                            "default": 5,
                         },
                         "filter_playbook": {
                             "type": "string",
-                            "description": "Optional specific playbook document ID to search within"
-                        }
+                            "description": "Optional specific playbook document ID to search within",
+                        },
                     },
                     "required": ["query"],
                 },
@@ -131,13 +131,13 @@ class IntegratedMCPClient:
                     "properties": {
                         "topic": {
                             "type": "string",
-                            "description": "Security topic or incident type (e.g., 'malware', 'phishing', 'data breach', 'DDoS', 'brute force')"
+                            "description": "Security topic or incident type (e.g., 'malware', 'phishing', 'data breach', 'DDoS', 'brute force')",
                         },
                         "top_k": {
                             "type": "integer",
                             "description": "Number of most relevant results to return",
-                            "default": 3
-                        }
+                            "default": 3,
+                        },
                     },
                     "required": ["topic"],
                 },
@@ -213,7 +213,8 @@ class IntegratedMCPClient:
                     tool_name = content.name
                     tool_args = content.input
                     result = await self._execute_tool(tool_name, tool_args)
-                    final_text.append(f"[Calling tool {tool_name} with args {tool_args}]")
+                    # Note: Removed the tool call trace to provide cleaner output for end users
+                    # final_text.append(f"[Calling tool {tool_name} with args {tool_args}]")
 
                     tool_results.append(
                         {
@@ -233,11 +234,15 @@ class IntegratedMCPClient:
                 messages=messages,
                 tools=self.available_tools,
             )
-        
+
         # If we hit max iterations, add a warning
         if iteration >= max_iterations - 1 and tool_calls_found:
-            logger.warning(f"Hit max iterations ({max_iterations}) with pending tool calls - some analysis may be incomplete")
-            final_text.append("\n\n[Note: Analysis was truncated due to complexity. Some tool results may not have been fully processed.]")
+            logger.warning(
+                f"Hit max iterations ({max_iterations}) with pending tool calls - some analysis may be incomplete"
+            )
+            final_text.append(
+                "\n\n[Note: Analysis was truncated due to complexity. Some tool results may not have been fully processed.]"
+            )
 
         return "\n".join(final_text)
 

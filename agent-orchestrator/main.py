@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.agent_manager import AgentManager
@@ -44,11 +44,7 @@ async def process_alert_interactive_mode(alert_data: dict, alert_id: str) -> dic
     """Process alert in interactive mode - initial pipeline + chat session creation"""
     try:
         # Process through initial pipeline steps (up to translation engine)
-        initial_pipeline = [
-            "alert_processing",
-            "ioc_extractor",
-            "translation_engine"
-        ]
+        initial_pipeline = ["alert_processing", "ioc_extractor", "translation_engine"]
 
         logger.info(f"Processing alert {alert_id} in interactive mode - initial pipeline")
         initial_result = await agent_manager.pipeline_processor.process(alert_data, initial_pipeline)
@@ -74,21 +70,17 @@ async def process_alert_interactive_mode(alert_data: dict, alert_id: str) -> dic
 
         logger.info(f"Creating chat session with alert summary length: {len(natural_language_summary)}")
         logger.info(f"Chat manager instance ID before create: {id(chat_session_manager)}")
-        
-        # Pass the full initial_result and alert_data to the session for later use in completion
+
+        # Pass the full initial_result to the session for later use in completion
         session_id = await chat_session_manager.create_session(
-            alert_summary=natural_language_summary, 
-            analyst_report=analyst_ready_report, 
-            initial_pipeline_data=initial_result, 
-            alert_id=alert_id,
-            alert_data=alert_data  # Pass the raw alert data for LLM context
+            natural_language_summary, analyst_ready_report, initial_result, alert_id
         )
 
         # Get the session to extract data for the response
         session = await chat_session_manager.get_session(session_id)
         if not session:
             raise ValueError("Failed to retrieve created chat session")
-        
+
         logger.info(f"Session {session_id} created and verified in manager {id(chat_session_manager)}")
 
         logger.info(f"Created interactive chat session {session_id} for alert {alert_id}")
@@ -101,7 +93,7 @@ async def process_alert_interactive_mode(alert_data: dict, alert_id: str) -> dic
             "alert_summary": natural_language_summary,
             "analyst_report": analyst_ready_report,
             "recommended_playbooks": session.recommended_playbooks,
-            "message": "Interactive chat session created. Use /chat/message to interact with the agent."
+            "message": "Interactive chat session created. Use /chat/message to interact with the agent.",
         }
 
     except Exception as e:
@@ -116,38 +108,38 @@ async def save_complete_results_to_file(result: dict, alert_id: str) -> None:
         output_dir = "llm_analysis_outputs"
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
-        
+
         # Create filename with timestamp and alert ID
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"{output_dir}/alert_analysis_{alert_id}_{timestamp}.json"
-        
+
         # Prepare comprehensive analysis data
         analysis_data = {
             "metadata": {
                 "alert_id": alert_id,
                 "timestamp": datetime.now().isoformat(),
-                "analysis_type": "complete_llm_pipeline"
+                "analysis_type": "complete_llm_pipeline",
             },
             "pipeline_results": result,
             "llm_outputs": {
                 "initial_summary": result.get("natural_language_summary"),
                 "final_mcp_response": result.get("mcp_response"),
-                "formatted_response": result.get("formatted_response")
+                "formatted_response": result.get("formatted_response"),
             },
             "extracted_intelligence": {
                 "iocs": result.get("extracted_iocs", {}),
                 "alert_details": result.get("processed_alert", {}),
-                "analyst_report": result.get("analyst_ready_report", {})
-            }
+                "analyst_report": result.get("analyst_ready_report", {}),
+            },
         }
-        
+
         # Save to file with pretty formatting
-        with open(filename, 'w', encoding='utf-8') as f:
+        with open(filename, "w", encoding="utf-8") as f:
             json.dump(analysis_data, f, indent=2, ensure_ascii=False)
-        
+
         logger.info(f"Complete LLM analysis saved to: {filename}")
         print(f"📁 Complete LLM analysis saved to: {filename}")
-        
+
     except Exception as e:
         logger.error(f"Error saving analysis to file: {str(e)}")
         print(f"❌ Error saving analysis: {str(e)}")
@@ -155,6 +147,7 @@ async def save_complete_results_to_file(result: dict, alert_id: str) -> None:
 
 # Pass the lifespan to the FastAPI app
 app = FastAPI(title="Agent Orchestrator", lifespan=lifespan)
+
 
 # Alert completion endpoint for interactive sessions
 @app.post("/alert/complete")
@@ -166,8 +159,12 @@ async def complete_interactive_alert(request: Request):
         alert_id = data.get("alert_id")
 
         logger.info(f"Alert completion request: session_id={session_id}, alert_id={alert_id}")
-        logger.info(f"Chat manager instance ID at completion: {id(chat_session_manager) if chat_session_manager else 'None'}")
-        logger.info(f"Available sessions in manager: {list(chat_session_manager.sessions.keys()) if chat_session_manager else 'No manager'}")
+        logger.info(
+            f"Chat manager instance ID at completion: {id(chat_session_manager) if chat_session_manager else 'None'}"
+        )
+        logger.info(
+            f"Available sessions in manager: {list(chat_session_manager.sessions.keys()) if chat_session_manager else 'No manager'}"
+        )
 
         if not session_id or not alert_id:
             raise HTTPException(status_code=400, detail="session_id and alert_id are required")
@@ -179,16 +176,18 @@ async def complete_interactive_alert(request: Request):
         session = await chat_session_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
-        
+
         # Get the initial pipeline data stored in the session
         initial_pipeline_data = session.initial_pipeline_data
-        
+
         # End the chat session and get the report
         chat_result = await chat_session_manager.end_session(session_id)
 
         if not chat_result.get("success", False):
             logger.error(f"Failed to end chat session: {chat_result.get('error')}")
-            raise HTTPException(status_code=400, detail=f"Failed to end chat session: {chat_result.get('error')}")
+            raise HTTPException(
+                status_code=400, detail=f"Failed to end chat session: {chat_result.get('error')}"
+            )
 
         report = chat_result.get("report", {})
 
@@ -199,7 +198,9 @@ async def complete_interactive_alert(request: Request):
         recommended_playbooks = report.get("recommended_playbooks", [])
         final_recommendations = report.get("final_recommendations", [])
 
-        logger.info(f"Retrieved chat report - Summary length: {len(natural_language_summary)}, Recommendations: {len(final_recommendations)}")
+        logger.info(
+            f"Retrieved chat report - Summary length: {len(natural_language_summary)}, Recommendations: {len(final_recommendations)}"
+        )
 
         # Create pipeline data with all the context from the chat session
         # This includes the original alert context plus the chat insights AND the initial pipeline data
@@ -212,16 +213,12 @@ async def complete_interactive_alert(request: Request):
             "chat_insights": {
                 "final_recommendations": final_recommendations,
                 "message_count": len(conversation_history),
-                "playbook_count": len(recommended_playbooks)
-            }
+                "playbook_count": len(recommended_playbooks),
+            },
         }
 
         # Process through final pipeline steps
-        final_pipeline = [
-            "prompt_generation",
-            "mcp_query",
-            "response_formatting"
-        ]
+        final_pipeline = ["prompt_generation", "mcp_query", "response_formatting"]
 
         logger.info(f"Completing interactive alert {alert_id} - running final pipeline steps")
         final_result = await agent_manager.pipeline_processor.process(pipeline_data, final_pipeline)
@@ -236,19 +233,23 @@ async def complete_interactive_alert(request: Request):
             "final_analysis": final_result,
             "pdf_report": chat_result.get("pdf_report"),
             "pdf_filename": chat_result.get("pdf_filename"),
-            "pdf_download_url": f"http://localhost:8001/chat/report/{chat_result.get('pdf_filename')}" if chat_result.get("pdf_filename") else None,
+            "pdf_download_url": (
+                f"http://localhost:8001/chat/report/{chat_result.get('pdf_filename')}"
+                if chat_result.get("pdf_filename")
+                else None
+            ),
             "summary": {
                 "alert_id": alert_id,
                 "chat_messages": len(report.get("conversation_history", [])),
                 "playbooks_found": len(report.get("recommended_playbooks", [])),
                 "recommendations": len(report.get("final_recommendations", [])),
-                "completed_at": datetime.now().isoformat()
-            }
+                "completed_at": datetime.now().isoformat(),
+            },
         }
 
         # Save complete results to file
         await save_complete_results_to_file(complete_result, alert_id)
-        
+
         # Log the PDF download link
         if complete_result.get("pdf_download_url"):
             logger.info(f"📄 Chat Session PDF Report: {complete_result['pdf_download_url']}")
@@ -259,8 +260,10 @@ async def complete_interactive_alert(request: Request):
         logger.error(f"Error completing interactive alert: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error completing alert: {str(e)}") from e
 
+
 # Mount static files (for CSS, JS, etc. if needed)
 # app.mount("/static", StaticFiles(directory="static"), name="static")
+
 
 # Serve chat interface HTML
 @app.get("/chat_interface.html", response_class=HTMLResponse)
@@ -268,7 +271,7 @@ async def get_chat_interface():
     """Serve the SOC analyst chat interface"""
     chat_file = os.path.join(os.path.dirname(__file__), "chat_interface.html")
     if os.path.exists(chat_file):
-        with open(chat_file, 'r', encoding='utf-8') as f:
+        with open(chat_file, "r", encoding="utf-8") as f:
             return f.read()
     else:
         raise HTTPException(status_code=404, detail="Chat interface not found")
@@ -342,7 +345,9 @@ async def process_alert(request: Request):
         # Add chat interface URL to the response
         chat_url = f"http://localhost:8001/chat_interface.html?alert_id={elastic_data.alert.id}&session_id={initial_result['session_id']}"
         initial_result["chat_interface_url"] = chat_url
-        initial_result["instructions"] = f"🔗 CHAT INTERFACE: {chat_url}\n\nOpen this URL in your browser to start the interactive chat session for this alert."
+        initial_result["instructions"] = (
+            f"🔗 CHAT INTERFACE: {chat_url}\n\nOpen this URL in your browser to start the interactive chat session for this alert."
+        )
 
         # Log the chat interface URL prominently
         logger.info(f"🔗 CHAT INTERFACE URL: {chat_url}")
@@ -363,8 +368,6 @@ async def process_alert(request: Request):
 
         logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Error processing alert: {str(e)}") from e
-
-
 
 
 # Chat endpoints for interactive SOC analyst interface
@@ -391,10 +394,14 @@ async def initialize_chat(request: Request):
                 return {
                     "success": True,
                     "session_id": session_id_param,
-                    "alert_id": existing_session.alert_summary[:50] + "..." if existing_session.alert_summary else alert_id,
+                    "alert_id": (
+                        existing_session.alert_summary[:50] + "..."
+                        if existing_session.alert_summary
+                        else alert_id
+                    ),
                     "alert_summary": existing_session.alert_summary,
                     "recommended_playbooks": existing_session.recommended_playbooks,
-                    "existing_conversation": existing_session.conversation_history
+                    "existing_conversation": existing_session.conversation_history,
                 }
             else:
                 logger.warning(f"Session {session_id_param} not found, creating new session")
@@ -404,13 +411,13 @@ async def initialize_chat(request: Request):
         logger.info("Creating new chat session")
         if alert_id:
             # For existing alerts, use a more generic summary since we don't have the actual rule-to-text
-            alert_summary = f"Security alert {alert_id} detected. Please analyze and provide response recommendations."
+            alert_summary = (
+                f"Security alert {alert_id} detected. Please analyze and provide response recommendations."
+            )
         else:
             alert_summary = "Security alert detected. Please analyze and provide response recommendations."
 
-        analyst_report = {
-            "executive_summary": "Initial alert analysis session started."
-        }
+        analyst_report = {"executive_summary": "Initial alert analysis session started."}
 
         session_id = await chat_session_manager.create_session(alert_summary, analyst_report)
 
@@ -427,7 +434,7 @@ async def initialize_chat(request: Request):
             "alert_id": alert_id or "new_session",
             "alert_summary": session.alert_summary,
             "recommended_playbooks": session.recommended_playbooks,
-            "existing_conversation": session.conversation_history
+            "existing_conversation": session.conversation_history,
         }
 
     except Exception as e:
@@ -497,7 +504,7 @@ async def get_active_sessions():
         return {
             "success": True,
             "active_sessions": sessions,
-            "total_count": chat_session_manager.get_session_count()
+            "total_count": chat_session_manager.get_session_count(),
         }
 
     except Exception as e:
@@ -512,23 +519,21 @@ async def download_chat_report(filename: str):
         # Validate filename to prevent directory traversal
         if ".." in filename or "/" in filename or "\\" in filename:
             raise HTTPException(status_code=400, detail="Invalid filename")
-        
+
         # Check if file exists
         report_path = os.path.join("chat_reports", filename)
         if not os.path.exists(report_path):
             raise HTTPException(status_code=404, detail="Report not found")
-        
+
         logger.info(f"Serving PDF report: {filename}")
-        
+
         return FileResponse(
             path=report_path,
             media_type="application/pdf",
             filename=filename,
-            headers={
-                "Content-Disposition": f"attachment; filename={filename}"
-            }
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
         )
-    
+
     except HTTPException:
         raise
     except Exception as e:
