@@ -158,10 +158,29 @@ class ElasticAlertData(BaseModel):
 
 
 class AlertRequest(BaseModel):
-    """Request model for alert processing"""
+    """Request model for alert processing - supports both wrapped and raw Elastic format"""
 
-    alert_data: ElasticAlertData = Field(..., description="The Elastic alert data to process")
+    alert_data: ElasticAlertData | None = Field(default=None, description="The Elastic alert data to process (wrapped format)")
     interactive: bool = Field(default=True, description="Enable interactive chat mode for SOC analyst (default: True)")
+    
+    # Allow raw Elastic alert fields to be passed directly at root level
+    alert: ElasticAlert | None = Field(default=None, description="Alert data (raw Elastic format)")
+    rule: ElasticRule | None = Field(default=None, description="Rule data (raw Elastic format)")
+    context: dict[str, Any] | None = Field(default=None, description="Alert context (raw Elastic format)")
+    state: dict[str, Any] | None = Field(default=None, description="Alert state (raw Elastic format)")
+    date: str | None = Field(default=None, description="Alert date (raw Elastic format)")
+    
+    class Config:
+        extra = "allow"  # Allow additional fields from raw Elastic alerts
+    
+    def get_alert_data(self) -> dict[str, Any]:
+        """Get alert data whether it's wrapped or raw format"""
+        if self.alert_data is not None:
+            # Wrapped format - return as dict
+            return self.alert_data.model_dump(by_alias=True, exclude_none=True)
+        else:
+            # Raw format - construct from root level fields
+            return self.model_dump(by_alias=True, exclude={"alert_data", "interactive"}, exclude_none=True)
 
 
 class AgentResponse(BaseModel):

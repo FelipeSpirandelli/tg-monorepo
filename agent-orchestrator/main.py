@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from contextlib import asynccontextmanager
 from datetime import datetime
 
@@ -11,6 +12,244 @@ from src.agent_manager import AgentManager
 from src.chat_session_manager import ChatSessionManager
 from src.logger import logger
 from src.models import AgentResponse, AlertRequest, ElasticAlertData
+
+
+def parse_malformed_elastic_alert(data: dict) -> dict:
+    """
+    Parse malformed Elastic alerts where form-data was incorrectly converted to JSON strings.
+    
+    This handles cases where alert_data contains keys that are giant JSON strings
+    instead of proper objects.
+    
+    Example input:
+    {
+        "alert_data": {
+            "{\\n    \"alert\": \"{...}\",\\n    \"rule\": \"{...}\"": [""],
+            "...more escaped JSON...": [""]
+        }
+    }
+    """
+    if "alert_data" not in data:
+        return data
+    
+    alert_data = data["alert_data"]
+    
+    # Check if this is the malformed format (dict with string keys containing JSON)
+    if not isinstance(alert_data, dict):
+        return data
+    
+    # Look for keys that contain JSON-like content
+    combined_json_str = ""
+    for key, value in alert_data.items():
+        if isinstance(key, str) and ("{" in key or "\"" in key):
+            # This key contains JSON content
+            combined_json_str += key
+    
+    if not combined_json_str:
+        return data
+    
+    logger.info("Detected malformed form-data alert format, attempting to parse...")
+    
+    try:
+        # Try to extract JSON objects from the combined string
+        # Look for the main components: alert, rule, context
+        result = {}
+        
+        # Extract alert JSON - it's double-escaped in the malformed format
+        # Format: "alert": "{\"id\":\"...\",\"uuid\":\"...\"}"
+        alert_match = re.search(r'"alert":\s*"(\{\\?"[^}]*\})"', combined_json_str)
+        if alert_match:
+            alert_str = alert_match.group(1)
+            # Remove escape characters
+            alert_str = alert_str.replace('\\"', '"').replace('\\n', '').replace('\\', '')
+            try:
+                result["alert"] = json.loads(alert_str)
+                logger.info(f"Extracted alert: {result['alert'].get('id', 'unknown')}")
+            except json.JSONDecodeError as e:
+                logger.warning(f"Failed to parse alert JSON: {e}, raw: {alert_str[:100]}")
+                # Create a minimal alert if extraction fails
+                result["alert"] = {
+                    "id": "unknown-malformed-alert",
+                    "uuid": "unknown-malformed-alert",
+                    "actionGroup": "default",
+                    "actionGroupName": "Default",
+                    "flapping": False
+                }
+                logger.info("Created fallback alert")
+        else:
+            # No alert found, create fallback
+            logger.warning("No alert found in malformed data, creating fallback")
+            result["alert"] = {
+                "id": "unknown-malformed-alert",
+                "uuid": "unknown-malformed-alert",
+                "actionGroup": "default",
+                "actionGroupName": "Default",
+                "flapping": False
+            }
+        
+        # Extract rule JSON (may be split across multiple parts)
+        rule_match = re.search(r'"rule":\s*"(\{.*)', combined_json_str, re.DOTALL)
+        if rule_match:
+            # The rule JSON is massive and may be cut off, try to find the complete JSON
+            rule_start = combined_json_str.find('"rule":')
+            if rule_start != -1:
+                # Find the next key or end
+                context_start = combined_json_str.find('"context":', rule_start)
+                if context_start != -1:
+                    rule_section = combined_json_str[rule_start:context_start]
+                else:
+                    rule_section = combined_json_str[rule_start:]
+                
+                # Extract the JSON value
+                rule_value_match = re.search(r'"rule":\s*"(\{.*?(?:\}(?![^{]*\{)|\}$))', rule_section, re.DOTALL)
+                if rule_value_match:
+                    rule_str = rule_value_match.group(1).replace('\\"', '"')
+                    # Try to parse what we have
+                    try:
+                        result["rule"] = json.loads(rule_str)
+                    except json.JSONDecodeError:
+                        # Try to extract key fields from the malformed rule string
+                        logger.warning("Rule JSON incomplete, attempting to extract key fields...")
+                        
+                        # Extract specific fields we need for IoC extraction
+                        rule_name = "Potential Linux Local Account Brute Force Detected"
+                        name_match = re.search(r'"name":\s*"([^"]+)"', combined_json_str)
+                        if name_match:
+                            rule_name = name_match.group(1)
+                        
+                        # Try to extract description (contains important context)
+                        description = "Identifies multiple consecutive login attempts"
+                        desc_match = re.search(r'"description":\s*"([^"]+(?:\\.[^"]*)*)"', combined_json_str)
+                        if desc_match:
+                            description = desc_match.group(1).replace('\\"', '"')[:500]  # First 500 chars
+                        
+                        # Try to extract query (contains IoCs!)
+                        query = ""
+                        extracted_iocs = {"processes": [], "user_accounts": [], "ports": []}
+                        query_match = re.search(r'"query":\s*"([^"]+(?:\\.[^"]*)*)"', combined_json_str)
+                        if query_match:
+                            query = query_match.group(1).replace('\\"', '"').replace('\\n', '\n')
+                            logger.info(f"Extracted query field: {query[:100]}...")
+                            
+                            # Extract actual IoC values from the query (not field names!)
+                            # Example: process.name == "su" -> extract "su"
+                            # Example: user.name in ("root", "admin") -> extract "root", "admin"
+                            
+                            # Extract process names
+                            process_matches = re.findall(r'process\.name\s*(?:==|in)\s*["\(]([^")\]]+)["\)]', query)
+                            for match in process_matches:
+                                for proc in match.split(','):
+                                    proc = proc.strip().strip('"').strip("'")
+                                    if proc and not '.' in proc:  # Filter out field names like "process.parent"
+                                        extracted_iocs["processes"].append(proc)
+                            
+                            # Extract user accounts
+                            user_matches = re.findall(r'user\.(?:name|id)\s*(?:==|in)\s*["\(]([^")\]]+)["\)]', query)
+                            for match in user_matches:
+                                for user in match.split(','):
+                                    user = user.strip().strip('"').strip("'")
+                                    if user and not '.' in user:
+                                        extracted_iocs["user_accounts"].append(user)
+                            
+                            # Extract ports
+                            port_matches = re.findall(r'(?:port|destination\.port)\s*[:=]+\s*(\d+)', query)
+                            for port in port_matches:
+                                extracted_iocs["ports"].append(int(port))
+                            
+                            if any(extracted_iocs.values()):
+                                logger.info(f"Pre-extracted IoCs from query: {extracted_iocs}")
+                        
+                        # Try to extract severity
+                        severity = "medium"
+                        sev_match = re.search(r'"severity":\s*"([^"]+)"', combined_json_str)
+                        if sev_match:
+                            severity = sev_match.group(1)
+                        
+                        # Create a minimal rule object with extracted data
+                        result["rule"] = {
+                            "id": "malformed-extracted",
+                            "name": rule_name,
+                            "type": "eql",
+                            "spaceId": "default",
+                            "tags": ["malformed-alert-partial-extraction"],
+                            "params": {
+                                "description": description,
+                                "severity": severity,
+                                "riskScore": 47,
+                                "query": query,  # This is critical for IoC extraction!
+                                "language": "eql",
+                                "pre_extracted_iocs": extracted_iocs  # Pass pre-extracted IoCs
+                            }
+                        }
+                    logger.info(f"Extracted rule: {result['rule'].get('name', 'unknown')}")
+        
+        # Extract context JSON (may contain actual alert event data with IoCs!)
+        # Context is usually a large nested structure with the actual alert events
+        context_start = combined_json_str.find('"context":')
+        if context_start != -1:
+            # Try to find where context ends (usually before next key or at end)
+            # Context section is massive, so we need to extract more carefully
+            logger.info("Found context section, attempting to extract...")
+            
+            # Look for the context value - it might be quoted or unquoted
+            context_value_start = combined_json_str.find(':', context_start) + 1
+            
+            # Try the simple quoted format first
+            context_match = re.search(r'"context":\s*"(\{[^"]*\})"', combined_json_str)
+            if context_match:
+                context_str = context_match.group(1).replace('\\"', '"')
+                try:
+                    result["context"] = json.loads(context_str)
+                    logger.info("Extracted context from quoted format")
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Failed to parse context JSON: {e}")
+            else:
+                # For malformed alerts, context might be truncated
+                # Extract what we can and create a note
+                logger.warning("Context section truncated or malformed - creating placeholder")
+                # Try to at least extract the reason if present
+                reason_match = re.search(r'"reason":\s*"([^"]+)"', combined_json_str)
+                if reason_match:
+                    reason = reason_match.group(1).replace('\\"', '"')
+                    result["context"] = {
+                        "note": "Context data truncated in malformed alert",
+                        "reason": reason
+                    }
+                    logger.info(f"Extracted reason from context: {reason[:100]}")
+                else:
+                    result["context"] = {"note": "Context data not available in malformed alert"}
+        
+        # Ensure we have at least alert and rule (fallback if not found)
+        if "alert" not in result:
+            result["alert"] = {
+                "id": "unknown-malformed-alert",
+                "uuid": "unknown-malformed-alert",
+                "actionGroup": "default",
+                "actionGroupName": "Default",
+                "flapping": False
+            }
+        
+        if "rule" not in result:
+            result["rule"] = {
+                "id": "unknown-malformed",
+                "name": "Unknown Malformed Alert",
+                "type": "query",
+                "spaceId": "default",
+                "tags": ["malformed-alert-fallback"],
+                "params": {
+                    "description": "Malformed alert data - unable to parse",
+                    "severity": "medium"
+                }
+            }
+        
+        if result:
+            logger.info(f"Successfully parsed malformed alert with {len(result)} components")
+            return result
+        
+    except Exception as e:
+        logger.warning(f"Failed to parse malformed alert format: {str(e)}")
+    
+    return data
 
 
 # Define lifespan context manager
@@ -315,16 +554,20 @@ async def process_alert(request: Request):
             logger.info(f"Processed form data with keys: {list(form_data.keys())}")
 
         elif "application/json" in content_type:
-            # Handle direct JSON data (legacy or testing)
+            # Handle direct JSON data - supports both wrapped and raw Elastic format
             json_data = await request.json()
+            
+            # Try to parse malformed form-data-as-JSON-string format
+            json_data = parse_malformed_elastic_alert(json_data)
 
-            if "alert_data" in json_data:
-                # Direct AlertRequest format
-                alert_request = AlertRequest.model_validate(json_data)
-                elastic_data = alert_request.alert_data
-            else:
-                # Assume it's ElasticAlertData format
-                elastic_data = ElasticAlertData.model_validate(json_data)
+            # Parse using the flexible AlertRequest model
+            alert_request = AlertRequest.model_validate(json_data)
+            
+            # Get alert data whether it's wrapped or raw format
+            alert_data_dict = alert_request.get_alert_data()
+            
+            # Convert to ElasticAlertData for processing
+            elastic_data = ElasticAlertData.model_validate(alert_data_dict)
 
             logger.info("Processed JSON data")
 
@@ -339,11 +582,14 @@ async def process_alert(request: Request):
             logger.info("Agent manager not initialized, initializing now...")
             await agent_manager.initialize_mvc_agent()
 
+        # Extract alert ID safely
+        alert_id = elastic_data.alert.id if elastic_data.alert else "unknown"
+        
         # Process alert in interactive mode (default behavior)
-        initial_result = await process_alert_interactive_mode(initial_data, elastic_data.alert.id)
+        initial_result = await process_alert_interactive_mode(initial_data, alert_id)
 
         # Add chat interface URL to the response
-        chat_url = f"http://localhost:8001/chat_interface.html?alert_id={elastic_data.alert.id}&session_id={initial_result['session_id']}"
+        chat_url = f"http://localhost:8001/chat_interface.html?alert_id={alert_id}&session_id={initial_result['session_id']}"
         initial_result["chat_interface_url"] = chat_url
         initial_result["instructions"] = (
             f"🔗 CHAT INTERFACE: {chat_url}\n\nOpen this URL in your browser to start the interactive chat session for this alert."
@@ -351,10 +597,10 @@ async def process_alert(request: Request):
 
         # Log the chat interface URL prominently
         logger.info(f"🔗 CHAT INTERFACE URL: {chat_url}")
-        logger.info(f"📋 Alert ID: {elastic_data.alert.id}")
+        logger.info(f"📋 Alert ID: {alert_id}")
         logger.info(f"🔑 Session ID: {initial_result['session_id']}")
         print(f"\n🔗 CHAT INTERFACE: {chat_url}")
-        print(f"📋 Alert ID: {elastic_data.alert.id}")
+        print(f"📋 Alert ID: {alert_id}")
         print(f"🔑 Session ID: {initial_result['session_id']}\n")
 
         return AgentResponse(response=initial_result)

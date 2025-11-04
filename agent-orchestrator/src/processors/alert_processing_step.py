@@ -96,4 +96,23 @@ class AlertProcessingStep(PipelineStep):
 
                     processed_alert["mitre_techniques"].append(technique_info)
 
+        # Extract context data (contains actual alert events with IoCs!)
+        if alert_data.get("context"):
+            context_info = alert_data["context"]
+            processed_alert["context"] = context_info
+            # If there are alerts in the context, that's where the real IoCs are
+            if isinstance(context_info, dict) and context_info.get("alerts"):
+                processed_alert["alert_events"] = context_info["alerts"]
+
+        # Extract state data (additional alert metadata)
+        if alert_data.get("state"):
+            processed_alert["state"] = alert_data["state"]
+
+        # If we have pre-extracted IoCs from malformed alert parsing, include them
+        if alert_data.get("rule"):
+            rule_info = alert_data["rule"]
+            rule_params = rule_info.get("params", {})
+            if rule_params.get("pre_extracted_iocs"):
+                processed_alert["pre_extracted_iocs"] = rule_params["pre_extracted_iocs"]
+
         return {"processed_alert": processed_alert}

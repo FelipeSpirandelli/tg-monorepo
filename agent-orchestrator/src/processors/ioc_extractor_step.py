@@ -32,13 +32,39 @@ class IoCExtractorStep(PipelineStep):
 
         logger.info("Starting IoC extraction process with LLM analysis")
 
-        # Use LLM to extract IoCs
-        iocs = await self._extract_iocs_with_llm(processed_alert)
+        # Check if we have pre-extracted IoCs from malformed alert parsing
+        pre_extracted = processed_alert.get("pre_extracted_iocs", {})
+        if pre_extracted and any(pre_extracted.values()):
+            logger.info(f"Found pre-extracted IoCs from malformed alert: {pre_extracted}")
+
+        # Use LLM to extract IoCs - pass BOTH processed alert AND the full raw data
+        # Include context, state, everything!
+        full_alert_data = {
+            "processed_alert": processed_alert,
+            "context": processed_alert.get("context", {}),
+            "state": processed_alert.get("state", {}),
+            "query": processed_alert.get("query", ""),
+            "rule_description": processed_alert.get("rule_description", ""),
+            "threat": processed_alert.get("threat", []),
+        }
+        
+        logger.info(f"Sending full alert data to LLM, keys: {list(full_alert_data.keys())}")
+        iocs = await self._extract_iocs_with_llm(full_alert_data)
 
         # Fallback to pattern matching if LLM fails
         if not iocs or sum(len(v) for v in iocs.values()) == 0:
             logger.warning("LLM extraction failed, falling back to pattern matching")
             iocs = await self._extract_iocs_fallback(processed_alert)
+
+        # Merge pre-extracted IoCs with LLM/pattern-extracted IoCs
+        if pre_extracted:
+            for ioc_type, values in pre_extracted.items():
+                if values and ioc_type in iocs:
+                    # Add pre-extracted values to the IoC list (deduplicate)
+                    existing = set(iocs[ioc_type]) if isinstance(iocs[ioc_type], list) else set()
+                    new_values = set(values) if isinstance(values, list) else {values}
+                    iocs[ioc_type] = list(existing | new_values)
+                    logger.info(f"Merged pre-extracted {ioc_type}: {list(new_values)}")
 
         # Create enriched alert with IoC information
         enriched_alert = processed_alert.copy()
@@ -50,33 +76,72 @@ class IoCExtractorStep(PipelineStep):
         return {"extracted_iocs": iocs, "enriched_alert": enriched_alert}
 
     async def _extract_iocs_with_llm(self, alert_data: dict[str, Any]) -> dict[str, list]:
-        """Use LLM to extract IoCs from alert data"""
+        """Use LLM to extract IoCs from alert data - NO MCP tools, just pure extraction"""
         try:
             # Create prompt for IoC extraction
             prompt = self._create_ioc_extraction_prompt(alert_data)
+            logger.info(f"Created IoC extraction prompt, length: {len(prompt)} chars")
 
-            # Process with LLM
-            response = await self.mcp_client.process_query(
+            # Direct LLM call WITHOUT any tools/MCP - just pure extraction
+            response = await self._call_llm_directly(
                 prompt,
-                model="claude-3-7-sonnet-20250219",  # Using working model
-                max_tokens=2000,
-                temperature=0.1,  # Low temperature for precise extraction
+                model="claude-3-7-sonnet-20250219",
+                max_tokens=4000,
+                temperature=0.1,
             )
+            
+            logger.info(f"LLM response received, length: {len(response)} chars")
+            logger.info(f"LLM response preview: {response[:200]}...")
 
             # Parse LLM response to extract structured IoCs
             iocs = self._parse_llm_ioc_response(response)
+            
+            logger.info(f"Parsed IoCs from LLM: {iocs}")
 
             # Check if parsing was successful by verifying we got valid IoCs
             if iocs and not self._is_empty_iocs(iocs):
-                logger.info("Successfully extracted IoCs using LLM")
+                logger.info(f"Successfully extracted IoCs using LLM, total: {sum(len(v) for v in iocs.values())}")
                 return iocs
             else:
-                logger.warning("LLM returned empty or invalid IoCs")
+                logger.warning(f"LLM returned empty or invalid IoCs - iocs={iocs}, is_empty={self._is_empty_iocs(iocs)}")
                 return self._get_empty_iocs_dict()
 
         except Exception as e:
-            logger.error(f"Error in LLM IoC extraction: {str(e)}")
+            logger.error(f"Error in LLM IoC extraction: {str(e)}", exc_info=True)
             return self._get_empty_iocs_dict()
+
+    async def _call_llm_directly(
+        self, prompt: str, model: str = "claude-3-7-sonnet-20250219", max_tokens: int = 4000, temperature: float = 0.1
+    ) -> str:
+        """
+        Call LLM directly WITHOUT any MCP tools - pure IoC extraction only
+        
+        This bypasses the MCP tool system to ensure no external queries are made
+        during IoC extraction.
+        """
+        try:
+            # Get the Anthropic client from mcp_client
+            anthropic_client = self.mcp_client.anthropic
+            
+            # Call Claude directly without tools
+            response = anthropic_client.messages.create(
+                model=model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                messages=[{"role": "user", "content": prompt}],
+                # NO TOOLS! Just pure text generation
+            )
+            
+            # Extract text from response
+            if response.content and len(response.content) > 0:
+                return response.content[0].text
+            else:
+                logger.warning("LLM returned empty response")
+                return ""
+                
+        except Exception as e:
+            logger.error(f"Error in direct LLM call: {str(e)}", exc_info=True)
+            return ""
 
     def _create_ioc_extraction_prompt(self, alert_data: dict[str, Any]) -> str:
         """Create a prompt for LLM to extract IoCs"""
@@ -88,9 +153,13 @@ class IoCExtractorStep(PipelineStep):
 
 TASK
 - Extract ONLY syntactically valid IoCs from the ALERT DATA below.
+- Look EVERYWHERE: in queries, descriptions, context, state, threat data, MITRE references, URLs, etc.
+- ESPECIALLY check the "query" field - it contains detection logic with process names, user accounts, ports, IPs, domains.
+- Extract values from detection patterns like: process.name == "su", user.name in ("root", "admin"), destination.port:22
 - Do not guess, infer, or invent values.
 - If a token resembles an IoC but **fails strict validation**, place it in "ambiguous_tokens" (see rules).
 - Do NOT include internal instance IDs, request IDs, or cloud resource IDs (e.g., AWS instance ids like "i-0123...") as IPs — those belong in ambiguous_tokens if present.
+- DO NOT extract field names like "host.id", "user.id", "process.parent.executable" as IoCs - these are field references, not values.
 
 ALERT DATA:
 {alert_json}
@@ -143,6 +212,11 @@ EXAMPLES
 - Valid url: "https://attack.mitre.org/techniques/T1110/"
 - Valid hash: "d41d8cd98f00b204e9800998ecf8427e" (MD5)
 - Valid port: 443
+- FROM QUERY "process.name == 'su'" → extract "su" as process
+- FROM QUERY "user.name in ('root', 'admin', 'service')" → extract ["root", "admin", "service"] as user_accounts
+- FROM QUERY "destination.port:22" → extract 22 as port
+- INVALID: "host.id" is a field name, NOT an IoC - ignore it
+- INVALID: "process.parent.executable" is a field name, NOT an IoC - ignore it
 
 OTHER REQUIREMENTS
 - If nothing valid exists for a key, return an empty array.
@@ -159,30 +233,30 @@ If a token is suspicious but syntactically invalid, include it in "ambiguous_tok
         """Parse LLM response to extract structured IoCs"""
         try:
             # Log the raw response for debugging
-            logger.debug(f"Raw LLM response: {response[:500]}...")
+            logger.info(f"Parsing LLM response, length: {len(response)}, first 300 chars: {response[:300]}...")
 
             # Try to find JSON in the response
             json_start = response.find("{")
             json_end = response.rfind("}")
 
             if json_start == -1 or json_end == -1:
-                logger.warning("No JSON brackets found in LLM response")
+                logger.warning(f"No JSON brackets found in LLM response. Response: {response[:200]}")
                 return self._get_empty_iocs_dict()
 
             if json_end <= json_start:
-                logger.warning("Invalid JSON bracket positions in LLM response")
+                logger.warning(f"Invalid JSON bracket positions in LLM response. start={json_start}, end={json_end}")
                 return self._get_empty_iocs_dict()
 
             json_str = response[json_start : json_end + 1].strip()
 
             # Log the extracted JSON string for debugging
-            logger.debug(f"Extracted JSON string: {json_str}")
+            logger.info(f"Extracted JSON string, length: {len(json_str)}, preview: {json_str[:200]}...")
 
             # Try multiple approaches to parse the JSON
             iocs = self._try_parse_json_multiple_ways(json_str)
 
             if not iocs:
-                logger.warning("All JSON parsing attempts failed")
+                logger.warning(f"All JSON parsing attempts failed for: {json_str[:300]}...")
                 return self._get_empty_iocs_dict()
 
             # Ensure all expected keys exist
