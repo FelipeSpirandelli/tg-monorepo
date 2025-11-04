@@ -149,6 +149,4 @@ Thumbs.db
 .uv/
 .ruff_cache/
 
-
-*.pdf
 rag/infra/qdrant_storage
