@@ -1,0 +1,76 @@
+{
+    "alert_data": {
+        "alert": {
+            "id": "*",
+            "uuid": "f8993ca7-971d-4367-99f0-9098d10a121f",
+            "actionGroup": "logs.threshold.fired",
+            "actionGroupName": "Fired",
+            "flapping": false
+        },
+        "context": {
+            "matchingDocuments": 166,
+            "conditions": "host.name equals security-lab",
+            "group": null,
+            "isRatio": false,
+            "reason": "166 log entries in the last 1 min. Alert when > 75.",
+            "host": {
+                "hostname": "security-lab",
+                "mac": [
+                    "02-06-F0-C1-E5-A3",
+                    "FE-63-68-AB-B3-FB"
+                ],
+                "architecture": "x86_64",
+                "ip": [
+                    "172.31.8.207",
+                    "fe80::594f:a856:4c91:6231",
+                    "fe80::fc63:68ff:feab:b3fb"
+                ],
+                "os": {
+                    "platform": "rocky",
+                    "version": "8.10 (Green Obsidian)",
+                    "kernel": "4.18.0-553.el8_10.x86_64",
+                    "name": "Rocky Linux",
+                    "family": "redhat"
+                },
+                "name": "security-lab",
+                "id": "ec2205f0796b81eb20be635feb26bd23"
+            },
+            "timestamp": "2025-08-27T17:21:27.891Z",
+            "viewInAppUrl": "https://i-0a4647b91f8bffcfc.elasticlabs.training/kibana/app/logs/link-to/default/logs?time=1756315287891",
+            "alertDetailsUrl": "https://i-0a4647b91f8bffcfc.elasticlabs.training/kibana/app/observability/alerts/f8993ca7-971d-4367-99f0-9098d10a121f"
+        },
+        "state": {
+            "alertState": 1,
+            "start": "2025-08-27T17:21:27.891Z",
+            "duration": "0"
+        },
+        "rule": {
+            "params": {
+                "timeSize": 1,
+                "timeUnit": "m",
+                "logView": {
+                    "type": "log-view-reference",
+                    "logViewId": "default"
+                },
+                "count": {
+                    "value": 75,
+                    "comparator": "more than"
+                },
+                "criteria": [
+                    {
+                        "field": "host.name",
+                        "comparator": "equals",
+                        "value": "security-lab"
+                    }
+                ]
+            },
+            "id": "3c0a17c0-ff60-4538-9c77-270438c8c373",
+            "name": "Teste Log ",
+            "type": "logs.alert.document.count",
+            "spaceId": "default",
+            "tags": [],
+            "url": "https://i-0a4647b91f8bffcfc.elasticlabs.training/kibana/app/observability/alerts/rules/3c0a17c0-ff60-4538-9c77-270438c8c373"
+        },
+        "date": "2025-08-27T17:21:28.606Z"
+    }
+}
