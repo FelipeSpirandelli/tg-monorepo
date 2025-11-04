@@ -32,6 +32,7 @@ class AgentManager:
         from .processors import (
             AlertProcessingStep,
             IoCExtractorStep,
+            RetrievalEngineStep,
             LLMChatStep,
             MCPQueryStep,
             PromptGenerationStep,
@@ -47,6 +48,7 @@ class AgentManager:
 
         # Register Rule-to-Text pipeline steps (all require MCP client)
         self.pipeline_processor.register_step("ioc_extractor", IoCExtractorStep(self.mcp_client))
+        self.pipeline_processor.register_step("retrieval_engine", RetrievalEngineStep(self.mcp_client))
         self.pipeline_processor.register_step("translation_engine", TranslationEngineStep(self.mcp_client))
         self.pipeline_processor.register_step("llm_chat", LLMChatStep(self.mcp_client))
 
@@ -83,6 +85,7 @@ class AgentManager:
         return [
             "alert_processing",      # Process raw alert data
             "ioc_extractor",         # Extract IoCs using LLM
+            "retrieval_engine",      # Enrich IoCs with threat intelligence
             "translation_engine",    # Convert to initial natural language
             "llm_chat",             # Interactive LLM chat with playbook integration
             "prompt_generation",     # Generate prompt for final LLM analysis
@@ -91,18 +94,20 @@ class AgentManager:
         ]
 
     def get_rule_to_text_pipeline(self) -> list[str]:
-        """Get the Rule-to-Text pipeline only (first 2 steps + initial translation)"""
+        """Get the Rule-to-Text pipeline only (IOC extraction + threat intel enrichment + translation)"""
         return [
             "alert_processing",
             "ioc_extractor",
+            "retrieval_engine",
             "translation_engine"
         ]
 
     def get_llm_engine_pipeline(self) -> list[str]:
-        """Get the LLM Engine pipeline (translation + interactive chat)"""
+        """Get the LLM Engine pipeline (Rule-to-Text + interactive chat)"""
         return [
             "alert_processing",
             "ioc_extractor",
+            "retrieval_engine",
             "translation_engine",
             "llm_chat"
         ]

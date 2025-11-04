@@ -43,8 +43,8 @@ chat_session_manager = None
 async def process_alert_interactive_mode(alert_data: dict, alert_id: str) -> dict:
     """Process alert in interactive mode - initial pipeline + chat session creation"""
     try:
-        # Process through initial pipeline steps (up to translation engine)
-        initial_pipeline = ["alert_processing", "ioc_extractor", "translation_engine"]
+        # Process through initial pipeline steps (Rule-to-Text: IOC extraction + threat intel + translation)
+        initial_pipeline = ["alert_processing", "ioc_extractor", "retrieval_engine", "translation_engine"]
 
         logger.info(f"Processing alert {alert_id} in interactive mode - initial pipeline")
         initial_result = await agent_manager.pipeline_processor.process(alert_data, initial_pipeline)

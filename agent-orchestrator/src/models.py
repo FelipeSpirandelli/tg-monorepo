@@ -5,46 +5,50 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class ElasticAlert(BaseModel):
-    """Elastic alert model extracted from form_data"""
+    """Elastic alert model extracted from form_data - flexible to support different alert types"""
 
     id: str = Field(..., description="Alert ID")
     uuid: str = Field(..., description="Alert UUID")
     action_group: str = Field(..., alias="actionGroup", description="Action group")
     action_group_name: str = Field(..., alias="actionGroupName", description="Action group name")
     flapping: bool = Field(..., description="Whether the alert is flapping")
-    consecutive_matches: int = Field(
-        ..., alias="consecutiveMatches", description="Number of consecutive matches"
+    consecutive_matches: int | None = Field(
+        default=None, alias="consecutiveMatches", description="Number of consecutive matches"
     )
+    
+    class Config:
+        extra = "allow"  # Allow additional fields not defined in the model
 
 
 class ElasticRuleParams(BaseModel):
-    """Elastic rule parameters"""
+    """Elastic rule parameters - flexible to support different alert types"""
 
+    # Common fields across all alert types
     author: list[str] | None = Field(default=None, description="Rule authors")
-    description: str = Field(..., description="Rule description")
+    description: str | None = Field(default=None, description="Rule description")
     note: str | None = Field(default=None, description="Rule note")
     false_positives: list[str] = Field(
         default_factory=list, alias="falsePositives", description="False positives"
     )
-    from_: str = Field(alias="from", description="Time range from")
-    rule_id: str = Field(..., alias="ruleId", description="Rule ID")
-    immutable: bool = Field(..., description="Whether the rule is immutable")
-    license: str = Field(..., description="License")
+    from_: str | None = Field(default=None, alias="from", description="Time range from")
+    rule_id: str | None = Field(default=None, alias="ruleId", description="Rule ID")
+    immutable: bool | None = Field(default=None, description="Whether the rule is immutable")
+    license: str | None = Field(default=None, description="License")
     output_index: str = Field(default="", alias="outputIndex", description="Output index")
     meta: dict[str, Any] = Field(default_factory=dict, description="Rule metadata")
-    max_signals: int = Field(..., alias="maxSignals", description="Maximum signals")
-    risk_score: int = Field(..., alias="riskScore", description="Risk score")
+    max_signals: int | None = Field(default=None, alias="maxSignals", description="Maximum signals")
+    risk_score: int | None = Field(default=None, alias="riskScore", description="Risk score")
     risk_score_mapping: list[Any] = Field(
         default_factory=list, alias="riskScoreMapping", description="Risk score mapping"
     )
-    severity: str = Field(..., description="Rule severity")
+    severity: str | None = Field(default=None, description="Rule severity")
     severity_mapping: list[Any] = Field(
         default_factory=list, alias="severityMapping", description="Severity mapping"
     )
     threat: list[dict[str, Any]] = Field(default_factory=list, description="Threat information")
-    to: str = Field(..., description="Time range to")
+    to: str | None = Field(default=None, description="Time range to")
     references: list[str] = Field(default_factory=list, description="References")
-    version: int = Field(..., description="Rule version")
+    version: int | None = Field(default=None, description="Rule version")
     exceptions_list: list[Any] = Field(
         default_factory=list, alias="exceptionsList", description="Exceptions list"
     )
@@ -55,28 +59,37 @@ class ElasticRuleParams(BaseModel):
         default_factory=list, alias="requiredFields", description="Required fields"
     )
     setup: str | None = Field(default=None, description="Setup instructions")
-    type: str = Field(..., description="Rule type")
-    language: str = Field(..., description="Query language")
+    type: str | None = Field(default=None, description="Rule type")
+    language: str | None = Field(default=None, description="Query language")
     index: list[str] = Field(default_factory=list, description="Indices")
-    query: str = Field(..., description="Rule query")
+    query: str | None = Field(default=None, description="Rule query")
     filters: list[Any] = Field(default_factory=list, description="Filters")
+    
+    # Additional fields to support other alert types (logs, observability, etc.)
+    # These will be ignored if not present
+    class Config:
+        extra = "allow"  # Allow additional fields not defined in the model
 
 
 class ElasticRule(BaseModel):
-    """Elastic rule model extracted from form_data"""
+    """Elastic rule model extracted from form_data - flexible to support different alert types"""
 
     params: ElasticRuleParams = Field(..., description="Rule parameters")
     id: str = Field(..., description="Rule ID")
     name: str = Field(..., description="Rule name")
     type: str = Field(..., description="Rule type")
-    url: str = Field(..., description="Rule URL")
+    url: str | None = Field(default=None, description="Rule URL")
     tags: list[str] = Field(default_factory=list, description="Rule tags")
     space_id: str = Field(..., alias="spaceId", description="Space ID")
+    
+    class Config:
+        extra = "allow"  # Allow additional fields not defined in the model
 
 
 class ElasticAlertData(BaseModel):
-    """Complete alert data from Elastic including metadata and extracted form data"""
+    """Complete alert data from Elastic including metadata and extracted form data - flexible to support different alert types"""
 
+    # HTTP metadata (optional, may not be present in all alert types)
     timestamp: str | None = Field(default=None, description="Alert timestamp")
     method: str | None = Field(default=None, description="HTTP method")
     headers: dict[str, str] | None = Field(default=None, description="HTTP headers")
@@ -85,9 +98,17 @@ class ElasticAlertData(BaseModel):
     user_agent: str | None = Field(default=None, description="User agent")
     form_data: dict[str, list[str]] | None = Field(default=None, description="Raw form data")
 
-    # Parsed form data
+    # Core alert data (present in all alert types)
     alert: ElasticAlert | None = Field(default=None, description="Parsed alert data")
     rule: ElasticRule | None = Field(default=None, description="Parsed rule data")
+    
+    # Additional fields for observability/logs alerts
+    context: dict[str, Any] | None = Field(default=None, description="Alert context (for logs/observability alerts)")
+    state: dict[str, Any] | None = Field(default=None, description="Alert state (for logs/observability alerts)")
+    date: str | None = Field(default=None, description="Alert date (for logs/observability alerts)")
+    
+    class Config:
+        extra = "allow"  # Allow additional fields not defined in the model
 
     @field_validator("alert", mode="before")
     @classmethod

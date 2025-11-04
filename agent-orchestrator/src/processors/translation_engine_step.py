@@ -66,8 +66,11 @@ class TranslationEngineStep(PipelineStep):
         """Create prompt for concise, actionable summary using RAG-retrieved playbooks"""
 
         rule_name = alert.get("rule_name", "Unknown Rule")
-        severity = alert.get("severity", "medium")
+        severity = alert.get("severity") or "medium"  # Handle None values
         description = alert.get("rule_description", "")
+        
+        # Build severity line only if we have a meaningful severity
+        severity_line = f"- Severity: {severity.upper()}" if severity and severity != "medium" else ""
 
         # Summarize IoCs
         ioc_summary = []
@@ -90,7 +93,7 @@ class TranslationEngineStep(PipelineStep):
 
 SECURITY ALERT DETAILS:
 - Rule: {rule_name}
-- Severity: {severity.upper()}
+{severity_line}
 - Description: {description}
 {mitre_info}
 
@@ -120,11 +123,14 @@ Be concise and actionable. Focus on what the analyst needs to know and do right 
         """Create concise analyst report structure"""
 
         rule_name = alert.get("rule_name", "Unknown Rule")
-        severity = alert.get("severity", "medium")
+        severity = alert.get("severity") or "medium"  # Handle None values
         total_iocs = sum(len(values) for values in iocs.values())
+        
+        # Format severity for display (don't show if it's just the default)
+        severity_display = f"({severity})" if severity and severity not in ["medium", "unknown"] else ""
 
         return {
-            "alert_summary": f"Alert: {rule_name} ({severity}) - {total_iocs} IoCs",
+            "alert_summary": f"Alert: {rule_name} {severity_display} - {total_iocs} IoCs".strip(),
             "immediate_action_required": "PENDING_ANALYSIS",  # Will be filled by LLM
             "recommended_playbook": "PENDING_ANALYSIS",  # Will be filled by LLM
             "alert_details": {
@@ -141,17 +147,22 @@ Be concise and actionable. Focus on what the analyst needs to know and do right 
         """Generate concise template-based fallback summary"""
 
         rule_name = alert.get("rule_name", "Unknown Rule")
-        severity = alert.get("severity", "medium")
+        severity = alert.get("severity") or "medium"  # Handle None values
         total_iocs = sum(len(values) for values in iocs.values())
+        
+        # Get rule description for more context
+        description = alert.get("rule_description", "")
 
         summary = "**1. WHAT HAPPENED:**\n"
-        summary += f"{rule_name} detected {severity} severity activity with {total_iocs} IoCs.\n"
-        summary += "Security rule triggered indicating potential compromise or policy violation.\n\n"
+        summary += f"{rule_name} triggered with {total_iocs} IoCs detected.\n"
+        if description:
+            summary += f"{description[:150]}...\n" if len(description) > 150 else f"{description}\n"
+        summary += "Security alert requires investigation and response.\n\n"
 
         summary += "**2. IMMEDIATE MITIGATION REQUIRED:**\n"
-        summary += f"{'YES' if severity in ['high', 'critical'] else 'NO'}\n\n"
+        summary += f"{'YES' if severity in ['high', 'critical'] else 'REVIEW REQUIRED'}\n\n"
 
         summary += "**3. RECOMMENDED PLAYBOOK:**\n"
-        summary += "General Incident Response"
+        summary += "General Incident Response - Review alert details and apply appropriate security procedures"
 
         return summary

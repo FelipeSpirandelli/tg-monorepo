@@ -2,6 +2,7 @@
 
 from src.processors.alert_processing_step import AlertProcessingStep
 from src.processors.ioc_extractor_step import IoCExtractorStep
+from src.processors.retrieval_engine_step import RetrievalEngineStep
 from src.processors.llm_chat_step import LLMChatStep
 from src.processors.mcp_query_step import MCPQueryStep
 from src.processors.pipeline_processor import PipelineProcessor, PipelineStep
@@ -14,6 +15,7 @@ __all__ = [
     "PipelineStep",
     "AlertProcessingStep",
     "IoCExtractorStep",
+    "RetrievalEngineStep",
     "LLMChatStep",
     "TranslationEngineStep",
     "PromptGenerationStep",
