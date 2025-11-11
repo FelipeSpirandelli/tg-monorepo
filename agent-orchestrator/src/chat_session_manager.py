@@ -258,7 +258,7 @@ When the analyst asks about specific alert fields, query parameters, MITRE techn
 
             # Use MCP client to generate response with full context
             response = await self.mcp_client.process_query(
-                full_context, model="claude-3-7-sonnet-20250219", max_tokens=2000, temperature=0.3
+                full_context, model="claude-sonnet-4-5-20250929", max_tokens=2000, temperature=0.3
             )
 
             return response
@@ -386,7 +386,7 @@ Keep it concise and focused on actionable playbook guidance."""
             # Generate recommendation using MCP client
             recommendation = await self.mcp_client.process_query(
                 recommendation_prompt,
-                model="claude-3-5-haiku-20241022",
+                model="claude-sonnet-4-5-20250929",
                 max_tokens=500,
                 temperature=0.3
             )

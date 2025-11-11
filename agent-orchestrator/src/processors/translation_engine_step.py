@@ -52,7 +52,7 @@ class TranslationEngineStep(PipelineStep):
             prompt = await self._create_initial_summary_prompt(alert, iocs)
 
             response = await self.mcp_client.process_query(
-                prompt, model="claude-3-7-sonnet-20250219", max_tokens=1500, temperature=0.3
+                prompt, model="claude-sonnet-4-5-20250929", max_tokens=1500, temperature=0.3
             )
 
             logger.info("Successfully generated initial summary with RAG playbook recommendation")

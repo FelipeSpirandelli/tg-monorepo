@@ -79,7 +79,7 @@ class RetrievalEngineStep(PipelineStep):
             # Process with LLM
             response = await self.mcp_client.process_query(
                 prompt,
-                model="claude-3-7-sonnet-20250219",  # Using working model
+                model="claude-sonnet-4-5-20250929",  # Using working model
                 max_tokens=1500,
                 temperature=0.3  # Slightly creative for analysis but still focused
             )

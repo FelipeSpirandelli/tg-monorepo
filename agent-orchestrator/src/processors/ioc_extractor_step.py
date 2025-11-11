@@ -1,5 +1,6 @@
 import json
 import re
+import asyncio
 from typing import Any
 
 from src.logger import logger
@@ -32,86 +33,117 @@ class IoCExtractorStep(PipelineStep):
 
         logger.info("Starting IoC extraction process with LLM analysis")
 
-        # Check if we have pre-extracted IoCs from malformed alert parsing
-        pre_extracted = processed_alert.get("pre_extracted_iocs", {})
-        if pre_extracted and any(pre_extracted.values()):
-            logger.info(f"Found pre-extracted IoCs from malformed alert: {pre_extracted}")
-
         # Use LLM to extract IoCs - pass BOTH processed alert AND the full raw data
-        # Include context, state, everything!
+        # Include context, state, everything! ESPECIALLY the alerts array in context!
         full_alert_data = {
             "processed_alert": processed_alert,
             "context": processed_alert.get("context", {}),
+            "alert_events": processed_alert.get("alert_events", []),  # This contains the actual IoCs!
             "state": processed_alert.get("state", {}),
             "query": processed_alert.get("query", ""),
             "rule_description": processed_alert.get("rule_description", ""),
             "threat": processed_alert.get("threat", []),
+            "mitre_techniques": processed_alert.get("mitre_techniques", []),
         }
         
+        # If context has alerts array, make sure it's included
+        if isinstance(full_alert_data.get("context"), dict):
+            context_alerts = full_alert_data["context"].get("alerts", [])
+            if context_alerts:
+                full_alert_data["alert_events"] = context_alerts
+                logger.info(f"Found {len(context_alerts)} alert events in context with IoCs")
+        
         logger.info(f"Sending full alert data to LLM, keys: {list(full_alert_data.keys())}")
-        iocs = await self._extract_iocs_with_llm(full_alert_data)
-
-        # Fallback to pattern matching if LLM fails
-        if not iocs or sum(len(v) for v in iocs.values()) == 0:
-            logger.warning("LLM extraction failed, falling back to pattern matching")
-            iocs = await self._extract_iocs_fallback(processed_alert)
-
-        # Merge pre-extracted IoCs with LLM/pattern-extracted IoCs
-        if pre_extracted:
-            for ioc_type, values in pre_extracted.items():
-                if values and ioc_type in iocs:
-                    # Add pre-extracted values to the IoC list (deduplicate)
-                    existing = set(iocs[ioc_type]) if isinstance(iocs[ioc_type], list) else set()
-                    new_values = set(values) if isinstance(values, list) else {values}
-                    iocs[ioc_type] = list(existing | new_values)
-                    logger.info(f"Merged pre-extracted {ioc_type}: {list(new_values)}")
+        logger.info(f"QUERY field: {full_alert_data.get('query', 'NOT FOUND')}")
+        logger.info(f"CONTEXT field: {full_alert_data.get('context', {})}")
+        logger.info(f"ALERT_EVENTS count: {len(full_alert_data.get('alert_events', []))}")
+        if full_alert_data.get('alert_events'):
+            logger.info(f"FIRST ALERT EVENT keys: {list(full_alert_data['alert_events'][0].keys()) if isinstance(full_alert_data['alert_events'][0], dict) else 'NOT A DICT'}")
+        logger.info(f"PROCESSED_ALERT keys: {list(processed_alert.keys())}")
+        
+        # Step 1: Extract IoCs using regex first
+        regex_iocs = self._extract_iocs_with_regex(full_alert_data)
+        logger.info(f"Regex extraction completed with {sum(len(v) for v in regex_iocs.values())} IoCs")
+        logger.info(f"Regex IoCs: {regex_iocs}")
+        
+        # Step 2: Extract IoCs using LLM (ALSO)
+        llm_iocs = await self._extract_iocs_with_llm(full_alert_data)
+        logger.info(f"LLM extraction completed with {sum(len(v) for v in llm_iocs.values())} IoCs")
+        
+        # Step 3: Merge both results (combine and deduplicate)
+        iocs = self._merge_ioc_results(regex_iocs, llm_iocs)
+        logger.info(f"Combined IoCs (regex + LLM): {sum(len(v) for v in iocs.values())} total IoCs")
 
         # Create enriched alert with IoC information
         enriched_alert = processed_alert.copy()
         enriched_alert["extracted_iocs"] = iocs
         enriched_alert["ioc_summary"] = self._create_ioc_summary(iocs)
+        enriched_alert["ioc_sources"] = {
+            "regex_count": sum(len(v) for v in regex_iocs.values()),
+            "llm_count": sum(len(v) for v in llm_iocs.values()),
+            "combined_count": sum(len(v) for v in iocs.values())
+        }
 
         logger.info(f"Extracted IoCs: {iocs}")
 
         return {"extracted_iocs": iocs, "enriched_alert": enriched_alert}
 
     async def _extract_iocs_with_llm(self, alert_data: dict[str, Any]) -> dict[str, list]:
-        """Use LLM to extract IoCs from alert data - NO MCP tools, just pure extraction"""
-        try:
-            # Create prompt for IoC extraction
-            prompt = self._create_ioc_extraction_prompt(alert_data)
-            logger.info(f"Created IoC extraction prompt, length: {len(prompt)} chars")
+        """Use LLM to extract IoCs from alert data - MUST ALWAYS SUCCEED"""
+        # Create prompt for IoC extraction
+        prompt = self._create_ioc_extraction_prompt(alert_data)
+        logger.info(f"SENDING TO LLM - Prompt length: {len(prompt)} chars")
+        logger.info(f"ALERT DATA KEYS: {list(alert_data.keys())}")
+        logger.info(f"ALERT DATA STRUCTURE: {json.dumps(alert_data, indent=2, default=str)[:2000]}")
+        logger.info(f"PROMPT PREVIEW (first 1500 chars):\n{prompt[:1500]}")
 
-            # Direct LLM call WITHOUT any tools/MCP - just pure extraction
-            response = await self._call_llm_directly(
-                prompt,
-                model="claude-3-7-sonnet-20250219",
-                max_tokens=4000,
-                temperature=0.1,
-            )
-            
-            logger.info(f"LLM response received, length: {len(response)} chars")
-            logger.info(f"LLM response preview: {response[:200]}...")
+        # LLM call with generous token limit for large/malformed alerts
+        # Add retry logic for rate limit errors
+        max_retries = 3
+        retry_delay = 2.0
+        
+        for attempt in range(max_retries):
+            try:
+                response = await self.mcp_client.process_query(
+                    prompt,
+                    model="claude-sonnet-4-5-20250929",
+                    max_tokens=8000,  # Generous limit for large alerts
+                    temperature=0.0,  # Zero temp for maximum determinism
+                )
+                break  # Success, exit retry loop
+            except Exception as e:
+                error_str = str(e)
+                if "rate_limit" in error_str.lower() or "429" in error_str:
+                    if attempt < max_retries - 1:
+                        wait_time = retry_delay * (2 ** attempt)  # Exponential backoff
+                        logger.warning(f"Rate limit hit, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})")
+                        await asyncio.sleep(wait_time)
+                        continue
+                    else:
+                        logger.error(f"Rate limit error after {max_retries} attempts: {e}")
+                        # Return empty IoCs on final failure
+                        return self._get_empty_iocs_dict()
+                else:
+                    # Non-rate-limit error, re-raise
+                    raise
+        
+        logger.info(f"LLM RESPONSE - Length: {len(response)} chars")
+        logger.info(f"LLM RESPONSE TYPE: {type(response)}")
+        logger.info(f"LLM RESPONSE FIRST 2000 CHARS:\n{response[:2000]}")
+        logger.info(f"LLM RESPONSE LAST 500 CHARS:\n{response[-500:]}")
+        logger.info(f"FULL LLM RESPONSE:\n{response}")
 
-            # Parse LLM response to extract structured IoCs
-            iocs = self._parse_llm_ioc_response(response)
-            
-            logger.info(f"Parsed IoCs from LLM: {iocs}")
+        # Parse LLM response to extract structured IoCs
+        iocs = self._parse_llm_ioc_response(response)
+        
+        logger.info(f"Parsed IoCs: {iocs}")
+        logger.info(f"Total IoCs: {sum(len(v) for v in iocs.values())}")
 
-            # Check if parsing was successful by verifying we got valid IoCs
-            if iocs and not self._is_empty_iocs(iocs):
-                logger.info(f"Successfully extracted IoCs using LLM, total: {sum(len(v) for v in iocs.values())}")
-                return iocs
-            else:
-                logger.warning(f"LLM returned empty or invalid IoCs - iocs={iocs}, is_empty={self._is_empty_iocs(iocs)}")
-                return self._get_empty_iocs_dict()
-
-        except Exception as e:
-            logger.error(f"Error in LLM IoC extraction: {str(e)}", exc_info=True)
-            return self._get_empty_iocs_dict()
+        # ALWAYS return something, even if empty - NO FAILURES ALLOWED
+        return iocs if iocs else self._get_empty_iocs_dict()
 
     async def _call_llm_directly(
-        self, prompt: str, model: str = "claude-3-7-sonnet-20250219", max_tokens: int = 4000, temperature: float = 0.1
+        self, prompt: str, model: str = "claude-sonnet-4-5-20250929", max_tokens: int = 4000, temperature: float = 0.1
     ) -> str:
         """
         Call LLM directly WITHOUT any MCP tools - pure IoC extraction only
@@ -143,19 +175,126 @@ class IoCExtractorStep(PipelineStep):
             logger.error(f"Error in direct LLM call: {str(e)}", exc_info=True)
             return ""
 
+    def _extract_iocs_with_regex(self, alert_data: dict[str, Any]) -> dict[str, list]:
+        """Extract IoCs using regex patterns from alert data"""
+        iocs = self._get_empty_iocs_dict()
+        
+        # Convert alert data to string for regex searching
+        alert_str = json.dumps(alert_data, default=str)
+        
+        # Extract IP addresses
+        ip_patterns = [
+            r'"source"[^}]*"ip"\s*:\s*"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})"',  # JSON structure
+            r'source\s+(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})',  # Reason field
+            r'"ip"\s*:\s*"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})"',  # Generic IP field
+        ]
+        for pattern in ip_patterns:
+            matches = re.findall(pattern, alert_str)
+            iocs["ip_addresses"].extend(matches)
+        
+        # Extract user accounts
+        user_patterns = [
+            r'"user"[^}]*"name"\s*:\s*"([^"]+)"',  # JSON structure
+            r'by\s+(\w+)\s+on',  # Reason field: "by testuser on"
+            r'"user\.name"\s*:\s*"([^"]+)"',  # Generic user.name field
+        ]
+        for pattern in user_patterns:
+            matches = re.findall(pattern, alert_str)
+            iocs["user_accounts"].extend(matches)
+        
+        # Extract processes
+        process_patterns = [
+            r'"process"[^}]*"name"\s*:\s*"([^"]+)"',  # JSON structure
+            r'process\s+(\w+)',  # Reason field: "process sshd"
+            r'"process\.name"\s*:\s*"([^"]+)"',  # Generic process.name field
+        ]
+        false_positives = {'based', 'on', 'in', 'with', 'from', 'to', 'the', 'a', 'an', 'and', 'or'}
+        for pattern in process_patterns:
+            matches = re.findall(pattern, alert_str)
+            for match in matches:
+                # Filter out common false positives and very short words
+                if match.lower() not in false_positives and len(match) > 2:
+                    iocs["processes"].append(match)
+        
+        # Extract domains from URLs
+        url_pattern = r'https?://([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})'
+        url_matches = re.findall(url_pattern, alert_str)
+        iocs["domains"].extend(url_matches)
+        
+        # Extract file paths
+        file_path_patterns = [
+            r'"path"\s*:\s*"([^"]+)"',  # JSON structure
+            r'"/[^"]+\.(log|txt|exe|dll|so|bin)"',  # Common file extensions
+        ]
+        for pattern in file_path_patterns:
+            matches = re.findall(pattern, alert_str)
+            iocs["file_paths"].extend(matches)
+        
+        # Extract ports (from destination.port or similar fields)
+        port_patterns = [
+            r'"destination"[^}]*"port"\s*:\s*(\d+)',  # JSON structure
+            r'port\s+(\d+)',  # Generic port mention
+        ]
+        for pattern in port_patterns:
+            matches = re.findall(pattern, alert_str)
+            for port_str in matches:
+                try:
+                    port = int(port_str) if isinstance(port_str, str) else port_str
+                    if 1 <= port <= 65535:  # Valid port range
+                        iocs["ports"].append(port)
+                except (ValueError, TypeError):
+                    pass
+        
+        # Deduplicate all lists
+        for key in iocs:
+            iocs[key] = list(set(iocs[key]))
+        
+        logger.info(f"Regex extracted IoCs: IPs={len(iocs['ip_addresses'])}, Users={len(iocs['user_accounts'])}, Processes={len(iocs['processes'])}, Domains={len(iocs['domains'])}, Ports={len(iocs['ports'])}")
+        
+        return iocs
+
+    def _merge_ioc_results(self, regex_iocs: dict[str, list], llm_iocs: dict[str, list]) -> dict[str, list]:
+        """Merge regex and LLM IoC results, deduplicating"""
+        merged = self._get_empty_iocs_dict()
+        
+        # Combine both results
+        for key in merged.keys():
+            merged[key] = list(set(regex_iocs.get(key, []) + llm_iocs.get(key, [])))
+        
+        logger.info(f"Merged IoCs - Regex: {sum(len(v) for v in regex_iocs.values())}, LLM: {sum(len(v) for v in llm_iocs.values())}, Combined: {sum(len(v) for v in merged.values())}")
+        
+        return merged
+
     def _create_ioc_extraction_prompt(self, alert_data: dict[str, Any]) -> str:
         """Create a prompt for LLM to extract IoCs"""
+        
+        # Optimize alert_data to reduce prompt size
+        # Truncate raw_malformed_data if it's too large (keep first 10000 chars)
+        optimized_data = alert_data.copy()
+        if isinstance(optimized_data.get("context"), dict):
+            context = optimized_data["context"]
+            if "raw_malformed_data" in context:
+                raw_data = context["raw_malformed_data"]
+                if isinstance(raw_data, str) and len(raw_data) > 10000:
+                    logger.info(f"Truncating raw_malformed_data from {len(raw_data)} to 10000 chars to reduce prompt size")
+                    optimized_data["context"]["raw_malformed_data"] = raw_data[:10000] + "...[truncated]"
+                    optimized_data["context"]["note"] = "Raw malformed context data (truncated) - LLM will extract IoCs from this string"
 
         # Convert alert data to a formatted string
-        alert_json = json.dumps(alert_data, indent=2, default=str)
+        alert_json = json.dumps(optimized_data, indent=2, default=str)
 
         prompt = f"""You are a professional cybersecurity analyst whose *only* job is to extract syntactically valid Indicators of Compromise (IoCs) from raw alert data.
 
 TASK
 - Extract ONLY syntactically valid IoCs from the ALERT DATA below.
 - Look EVERYWHERE: in queries, descriptions, context, state, threat data, MITRE references, URLs, etc.
+- **CRITICAL: Check the "alert_events" array - it contains actual security events with source IPs, user names, processes, ports, etc.**
+- **CRITICAL: Check the "context" object - it may contain nested "alerts" array with IoCs like source.ip, user.name, process.name, destination.port**
+- **CRITICAL: If context contains "raw_malformed_data", extract IoCs directly from that escaped JSON string (look for escaped JSON patterns like source with ip values)**
 - ESPECIALLY check the "query" field - it contains detection logic with process names, user accounts, ports, IPs, domains.
 - Extract values from detection patterns like: process.name == "su", user.name in ("root", "admin"), destination.port:22
+- Extract from alert event fields like: source.ip, user.name, process.name, destination.port, host.name, etc.
+- Extract from malformed/escaped JSON strings by parsing the escaped structure - look for patterns like escaped quotes and braces
 - Do not guess, infer, or invent values.
 - If a token resembles an IoC but **fails strict validation**, place it in "ambiguous_tokens" (see rules).
 - Do NOT include internal instance IDs, request IDs, or cloud resource IDs (e.g., AWS instance ids like "i-0123...") as IPs — those belong in ambiguous_tokens if present.
@@ -230,33 +369,31 @@ If a token is suspicious but syntactically invalid, include it in "ambiguous_tok
         return prompt
 
     def _parse_llm_ioc_response(self, response: str) -> dict[str, list]:
-        """Parse LLM response to extract structured IoCs"""
+        """Parse LLM response to extract structured IoCs - NEVER FAILS"""
         try:
             # Log the raw response for debugging
-            logger.info(f"Parsing LLM response, length: {len(response)}, first 300 chars: {response[:300]}...")
+            logger.info(f"Parsing LLM response, length: {len(response)}, first 500 chars: {response[:500]}...")
 
             # Try to find JSON in the response
             json_start = response.find("{")
             json_end = response.rfind("}")
 
             if json_start == -1 or json_end == -1:
-                logger.warning(f"No JSON brackets found in LLM response. Response: {response[:200]}")
+                logger.error(f"No JSON brackets in LLM response! Full response: {response}")
                 return self._get_empty_iocs_dict()
 
             if json_end <= json_start:
-                logger.warning(f"Invalid JSON bracket positions in LLM response. start={json_start}, end={json_end}")
+                logger.error(f"Invalid JSON bracket positions! start={json_start}, end={json_end}")
                 return self._get_empty_iocs_dict()
 
             json_str = response[json_start : json_end + 1].strip()
-
-            # Log the extracted JSON string for debugging
-            logger.info(f"Extracted JSON string, length: {len(json_str)}, preview: {json_str[:200]}...")
+            logger.info(f"Extracted JSON, length: {len(json_str)}, preview: {json_str[:300]}...")
 
             # Try multiple approaches to parse the JSON
             iocs = self._try_parse_json_multiple_ways(json_str)
 
             if not iocs:
-                logger.warning(f"All JSON parsing attempts failed for: {json_str[:300]}...")
+                logger.error(f"ALL JSON parsing failed! String: {json_str[:500]}")
                 return self._get_empty_iocs_dict()
 
             # Ensure all expected keys exist
@@ -284,11 +421,11 @@ If a token is suspicious but syntactically invalid, include it in "ambiguous_tok
             iocs = self._clean_and_validate_iocs(iocs)
 
             total_iocs = sum(len(v) for v in iocs.values())
-            logger.info(f"Successfully parsed IoCs from LLM response: {total_iocs} total IoCs")
+            logger.info(f"Parsed {total_iocs} IoCs successfully")
             return iocs
 
         except Exception as e:
-            logger.error(f"Error parsing LLM response: {str(e)}")
+            logger.error(f"EXCEPTION in parsing! {str(e)}", exc_info=True)
             return self._get_empty_iocs_dict()
 
     def _try_parse_json_multiple_ways(self, json_str: str) -> dict[str, list] | None:

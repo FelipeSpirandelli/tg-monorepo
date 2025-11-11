@@ -156,7 +156,7 @@ class IntegratedMCPClient:
     async def process_query(
         self,
         query: str,
-        model: str = "claude-3-5-haiku-20241022",  # Using working model
+        model: str = "claude-sonnet-4-5-20250929",  # Using working model
         max_tokens: int = 1000,
         temperature: float = 0.5,
     ) -> str:

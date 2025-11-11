@@ -108,11 +108,4 @@ class AlertProcessingStep(PipelineStep):
         if alert_data.get("state"):
             processed_alert["state"] = alert_data["state"]
 
-        # If we have pre-extracted IoCs from malformed alert parsing, include them
-        if alert_data.get("rule"):
-            rule_info = alert_data["rule"]
-            rule_params = rule_info.get("params", {})
-            if rule_params.get("pre_extracted_iocs"):
-                processed_alert["pre_extracted_iocs"] = rule_params["pre_extracted_iocs"]
-
         return {"processed_alert": processed_alert}

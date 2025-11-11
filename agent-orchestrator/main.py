@@ -39,11 +39,17 @@ def parse_malformed_elastic_alert(data: dict) -> dict:
         return data
     
     # Look for keys that contain JSON-like content
+    # Also check values - sometimes the JSON is split across keys AND values
     combined_json_str = ""
     for key, value in alert_data.items():
         if isinstance(key, str) and ("{" in key or "\"" in key):
             # This key contains JSON content
             combined_json_str += key
+        # Also check if values contain JSON strings (for context, alert, etc.)
+        if isinstance(value, list) and len(value) > 0:
+            for val in value:
+                if isinstance(val, str) and ("{" in val or "\"" in val):
+                    combined_json_str += val
     
     if not combined_json_str:
         return data
@@ -123,41 +129,12 @@ def parse_malformed_elastic_alert(data: dict) -> dict:
                         if desc_match:
                             description = desc_match.group(1).replace('\\"', '"')[:500]  # First 500 chars
                         
-                        # Try to extract query (contains IoCs!)
+                        # Try to extract query (contains IoCs!) - let LLM extract IoCs, not regex
                         query = ""
-                        extracted_iocs = {"processes": [], "user_accounts": [], "ports": []}
                         query_match = re.search(r'"query":\s*"([^"]+(?:\\.[^"]*)*)"', combined_json_str)
                         if query_match:
                             query = query_match.group(1).replace('\\"', '"').replace('\\n', '\n')
                             logger.info(f"Extracted query field: {query[:100]}...")
-                            
-                            # Extract actual IoC values from the query (not field names!)
-                            # Example: process.name == "su" -> extract "su"
-                            # Example: user.name in ("root", "admin") -> extract "root", "admin"
-                            
-                            # Extract process names
-                            process_matches = re.findall(r'process\.name\s*(?:==|in)\s*["\(]([^")\]]+)["\)]', query)
-                            for match in process_matches:
-                                for proc in match.split(','):
-                                    proc = proc.strip().strip('"').strip("'")
-                                    if proc and not '.' in proc:  # Filter out field names like "process.parent"
-                                        extracted_iocs["processes"].append(proc)
-                            
-                            # Extract user accounts
-                            user_matches = re.findall(r'user\.(?:name|id)\s*(?:==|in)\s*["\(]([^")\]]+)["\)]', query)
-                            for match in user_matches:
-                                for user in match.split(','):
-                                    user = user.strip().strip('"').strip("'")
-                                    if user and not '.' in user:
-                                        extracted_iocs["user_accounts"].append(user)
-                            
-                            # Extract ports
-                            port_matches = re.findall(r'(?:port|destination\.port)\s*[:=]+\s*(\d+)', query)
-                            for port in port_matches:
-                                extracted_iocs["ports"].append(int(port))
-                            
-                            if any(extracted_iocs.values()):
-                                logger.info(f"Pre-extracted IoCs from query: {extracted_iocs}")
                         
                         # Try to extract severity
                         severity = "medium"
@@ -178,7 +155,6 @@ def parse_malformed_elastic_alert(data: dict) -> dict:
                                 "riskScore": 47,
                                 "query": query,  # This is critical for IoC extraction!
                                 "language": "eql",
-                                "pre_extracted_iocs": extracted_iocs  # Pass pre-extracted IoCs
                             }
                         }
                     logger.info(f"Extracted rule: {result['rule'].get('name', 'unknown')}")
@@ -187,37 +163,147 @@ def parse_malformed_elastic_alert(data: dict) -> dict:
         # Context is usually a large nested structure with the actual alert events
         context_start = combined_json_str.find('"context":')
         if context_start != -1:
-            # Try to find where context ends (usually before next key or at end)
-            # Context section is massive, so we need to extract more carefully
             logger.info("Found context section, attempting to extract...")
             
-            # Look for the context value - it might be quoted or unquoted
+            # Find the start of the context value (after "context":)
             context_value_start = combined_json_str.find(':', context_start) + 1
             
-            # Try the simple quoted format first
-            context_match = re.search(r'"context":\s*"(\{[^"]*\})"', combined_json_str)
-            if context_match:
-                context_str = context_match.group(1).replace('\\"', '"')
+            # Skip whitespace
+            while context_value_start < len(combined_json_str) and combined_json_str[context_value_start] in ' \t\n':
+                context_value_start += 1
+            
+            # Check if it starts with a quote (escaped JSON string)
+            if context_value_start < len(combined_json_str) and combined_json_str[context_value_start] == '"':
+                # Extract the entire escaped JSON string value
+                # Start after the opening quote
+                start_pos = context_value_start + 1
+                end_pos = start_pos
+                depth = 0
+                in_string = False
+                escape_next = False
+                
+                # Find the matching closing quote, accounting for escaped quotes
+                while end_pos < len(combined_json_str):
+                    char = combined_json_str[end_pos]
+                    
+                    if escape_next:
+                        escape_next = False
+                        end_pos += 1
+                        continue
+                    
+                    if char == '\\':
+                        escape_next = True
+                        end_pos += 1
+                        continue
+                    
+                    if char == '"' and not escape_next:
+                        # Check if this is the closing quote (not inside braces)
+                        # Simple check: if we're not inside any braces, this is likely the end
+                        if depth == 0:
+                            # Double-check: look ahead to see if there's a comma or closing brace
+                            next_char_pos = end_pos + 1
+                            while next_char_pos < len(combined_json_str) and combined_json_str[next_char_pos] in ' \t\n':
+                                next_char_pos += 1
+                            if next_char_pos >= len(combined_json_str) or combined_json_str[next_char_pos] in ',}':
+                                break
+                    
+                    if char == '{':
+                        depth += 1
+                    elif char == '}':
+                        depth -= 1
+                    
+                    end_pos += 1
+                
+                # Extract the context string
+                context_str_escaped = combined_json_str[start_pos:end_pos]
+                
+                # Unescape the JSON string
+                # Replace escaped quotes and newlines
+                context_str = context_str_escaped.replace('\\"', '"').replace('\\n', '\n').replace('\\\\', '\\')
+                
+                # Remove control characters that break JSON parsing
+                import string
+                context_str = ''.join(char for char in context_str if char in string.printable or char in '\n\r\t')
+                
+                # Try to parse the JSON
                 try:
                     result["context"] = json.loads(context_str)
-                    logger.info("Extracted context from quoted format")
+                    logger.info(f"Successfully extracted and parsed context JSON")
+                    # Check if context has alerts array
+                    if isinstance(result["context"], dict) and "alerts" in result["context"]:
+                        logger.info(f"Found {len(result['context']['alerts'])} alerts in context")
                 except json.JSONDecodeError as e:
                     logger.warning(f"Failed to parse context JSON: {e}")
+                    logger.warning(f"Context string preview (first 500 chars): {context_str[:500]}")
+                    
+                    # Try to extract IoCs directly from the context string using multiple methods
+                    # Method 1: Extract from reason field (e.g., "source 186.194.168.172 by testuser")
+                    reason_ip_pattern = r'source\s+(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'
+                    reason_user_pattern = r'by\s+(\w+)\s+on'
+                    reason_process_pattern = r'process\s+(\w+)'
+                    
+                    ip_matches = re.findall(reason_ip_pattern, context_str)
+                    user_matches = re.findall(reason_user_pattern, context_str)
+                    process_matches = re.findall(reason_process_pattern, context_str)
+                    
+                    # Method 2: Extract from JSON structure patterns
+                    if not ip_matches:
+                        ip_matches = re.findall(r'"source"[^}]*"ip"\s*:\s*"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})"', context_str)
+                    if not user_matches:
+                        user_matches = re.findall(r'"user"[^}]*"name"\s*:\s*"([^"]+)"', context_str)
+                    if not process_matches:
+                        process_matches = re.findall(r'"process"[^}]*"name"\s*:\s*"([^"]+)"', context_str)
+                    
+                    # Method 3: Extract from reason field with "sshd" process
+                    if not process_matches:
+                        process_matches = re.findall(r'process\s+(\w+)', context_str)
+                        if not process_matches:
+                            # Look for sshd specifically
+                            if 'sshd' in context_str.lower():
+                                process_matches = ['sshd']
+                    
+                    # Remove duplicates and clean
+                    ip_matches = list(set(ip_matches))
+                    user_matches = list(set(user_matches))
+                    process_matches = list(set(process_matches))
+                    
+                    # Create a simplified context with extracted IoCs
+                    if ip_matches or user_matches or process_matches:
+                        simplified_alerts = []
+                        max_alerts = max(len(ip_matches), len(user_matches), len(process_matches), 1)
+                        for i in range(min(10, max_alerts)):
+                            alert = {}
+                            if i < len(ip_matches):
+                                alert["source"] = {"ip": ip_matches[i]}
+                            if i < len(user_matches):
+                                alert["user"] = {"name": user_matches[i]}
+                            if i < len(process_matches):
+                                alert["process"] = {"name": process_matches[i]}
+                            if alert:
+                                simplified_alerts.append(alert)
+                        
+                        if simplified_alerts:
+                            result["context"] = {"alerts": simplified_alerts}
+                            logger.info(f"Extracted {len(simplified_alerts)} simplified alerts with IoCs: IPs={ip_matches}, Users={user_matches}, Processes={process_matches}")
+                        else:
+                            # Fallback: store truncated raw string (max 10000 chars)
+                            truncated = context_str[:10000] if len(context_str) > 10000 else context_str
+                            result["context"] = {
+                                "raw_malformed_data": truncated,
+                                "note": f"Raw malformed context data (truncated from {len(context_str)} to {len(truncated)} chars) - LLM will extract IoCs"
+                            }
+                            logger.info(f"Storing truncated raw context string for LLM extraction ({len(truncated)} chars)")
+                    else:
+                        # No IoCs found with regex, store truncated raw string
+                        truncated = context_str[:10000] if len(context_str) > 10000 else context_str
+                        result["context"] = {
+                            "raw_malformed_data": truncated,
+                            "note": f"Raw malformed context data (truncated from {len(context_str)} to {len(truncated)} chars) - LLM will extract IoCs"
+                        }
+                        logger.info(f"Storing truncated raw context string for LLM extraction ({len(truncated)} chars)")
             else:
-                # For malformed alerts, context might be truncated
-                # Extract what we can and create a note
-                logger.warning("Context section truncated or malformed - creating placeholder")
-                # Try to at least extract the reason if present
-                reason_match = re.search(r'"reason":\s*"([^"]+)"', combined_json_str)
-                if reason_match:
-                    reason = reason_match.group(1).replace('\\"', '"')
-                    result["context"] = {
-                        "note": "Context data truncated in malformed alert",
-                        "reason": reason
-                    }
-                    logger.info(f"Extracted reason from context: {reason[:100]}")
-                else:
-                    result["context"] = {"note": "Context data not available in malformed alert"}
+                logger.warning("Context value does not start with quote, using fallback")
+                result["context"] = {"note": "Context data format not recognized"}
         
         # Ensure we have at least alert and rule (fallback if not found)
         if "alert" not in result:

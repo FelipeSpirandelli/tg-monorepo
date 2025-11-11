@@ -154,7 +154,7 @@ Based on the alert details and available playbooks, provide a comprehensive anal
             # Use MCP client to generate response
             response = await self.mcp_client.process_query(
                 enhanced_prompt,
-                model="claude-3-7-sonnet-20250219",
+                model="claude-sonnet-4-5-20250929",
                 max_tokens=2000,
                 temperature=0.3
             )

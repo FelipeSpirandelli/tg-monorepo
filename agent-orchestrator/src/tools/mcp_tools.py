@@ -26,9 +26,9 @@ def add_numbers(a: int, b: int) -> int:
 
 
 @mcp_tools.tool()
-def lookup_ip(ip_address: str) -> dict[str, Any]:
+async def lookup_ip(ip_address: str) -> dict[str, Any]:
     """
-    Look up reputation and geolocation data for an IP address
+    Look up reputation and geolocation data for an IP address using AbuseIPDB
 
     Args:
         ip_address: The IP address to look up
@@ -36,7 +36,8 @@ def lookup_ip(ip_address: str) -> dict[str, Any]:
     Returns:
         Dictionary containing IP information including reputation and location
     """
-    return ip_lookup(ip_address)
+    from .ip_lookup import _async_ip_lookup
+    return await _async_ip_lookup(ip_address)
 
 
 @mcp_tools.tool()

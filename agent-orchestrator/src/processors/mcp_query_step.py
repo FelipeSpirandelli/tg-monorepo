@@ -28,7 +28,7 @@ class MCPQueryStep(PipelineStep):
         logger.info("Processing Prompt", {"prompt": prompt})
 
         # Get optional configuration parameters
-        model = data.get("model", "claude-3-7-sonnet-20250219")  # Using working model
+        model = data.get("model", "claude-sonnet-4-5-20250929")  # Using working model
         max_tokens = data.get("max_tokens", 1000)
         temperature = data.get("temperature", 0.5)
 
